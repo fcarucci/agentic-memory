@@ -206,9 +206,60 @@ def load_memory_from_sections(section_dir: Path) -> "MemoryBank":
     return bank
 
 
+def _is_legacy_single_file(master_path: Path) -> bool:
+    """True if master_path is a populated all-in-one MEMORY.md (not curated)."""
+    if not master_path.exists():
+        return False
+    content = master_path.read_text(encoding="utf-8")
+    if "per-section files" in content:
+        return False
+    bank = parse_memory_file(master_path)
+    total = (len(bank.experiences) + len(bank.world_knowledge)
+             + len(bank.beliefs) + len(bank.reflections)
+             + len(bank.entity_summaries))
+    return total > 0
+
+
+def auto_migrate(master_path: Path, section_dir: Path) -> None:
+    """Split a legacy single-file MEMORY.md into per-section files.
+
+    Called transparently on first load when section files are absent
+    but the master contains entries.  Backs up the original as
+    ``MEMORY.md.bak`` and replaces the master with the curated template.
+    """
+    bank = parse_memory_file(master_path)
+    section_dir.mkdir(parents=True, exist_ok=True)
+
+    for section_name, filename in SECTION_FILES.items():
+        items = getattr(bank, section_name)
+        sf = section_dir / filename
+        if sf.exists():
+            continue
+        content = SECTION_TEMPLATES[section_name]
+        for entry in items:
+            content = content.rstrip("\n") + "\n\n" + entry.raw + "\n"
+        sf.write_text(content, encoding="utf-8")
+
+    backup = master_path.parent / (master_path.name + ".bak")
+    if not backup.exists():
+        import shutil
+        shutil.copy2(master_path, backup)
+
+    is_user = "User Memory" in master_path.read_text(encoding="utf-8")
+    template = USER_MEMORY_TEMPLATE if is_user else CURATED_MASTER_TEMPLATE
+    master_path.write_text(template, encoding="utf-8")
+
+
 def load_memory(master_path: Path, section_dir: Path) -> "MemoryBank":
-    """Load from section files when available, else from a single master."""
+    """Load from section files when available, else from a single master.
+
+    If the master is a legacy all-in-one file with entries and no
+    section files exist yet, auto-migrates before loading.
+    """
     if has_section_files(section_dir):
+        return load_memory_from_sections(section_dir)
+    if _is_legacy_single_file(master_path):
+        auto_migrate(master_path, section_dir)
         return load_memory_from_sections(section_dir)
     return parse_memory_file(master_path)
 

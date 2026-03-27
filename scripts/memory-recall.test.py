@@ -1272,5 +1272,53 @@ class TestAppendToSectionFile(unittest.TestCase):
         self.assertEqual(len(bank.experiences), 3)
 
 
+class TestAutoMigrate(unittest.TestCase):
+    """load_memory should auto-split a legacy single-file MEMORY.md."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.master = self.tmp / "MEMORY.md"
+        self.master.write_text(SAMPLE_MEMORY, encoding="utf-8")
+        self.section_dir = self.tmp / "memory"
+
+    def test_auto_migrates_on_load(self):
+        self.assertFalse(self.section_dir.exists())
+        bank = recall.load_memory(self.master, self.section_dir)
+        self.assertTrue(self.section_dir.is_dir())
+        self.assertTrue((self.section_dir / "experiences.md").exists())
+        self.assertEqual(len(bank.experiences), 4)
+        self.assertEqual(len(bank.world_knowledge), 3)
+        self.assertEqual(len(bank.beliefs), 2)
+
+    def test_master_replaced_with_curated(self):
+        recall.load_memory(self.master, self.section_dir)
+        content = self.master.read_text(encoding="utf-8")
+        self.assertIn("Curated subset", content)
+
+    def test_backup_created(self):
+        recall.load_memory(self.master, self.section_dir)
+        self.assertTrue((self.tmp / "MEMORY.md.bak").exists())
+        bak_content = (self.tmp / "MEMORY.md.bak").read_text(encoding="utf-8")
+        self.assertIn("## Experiences", bak_content)
+
+    def test_no_auto_migrate_when_sections_exist(self):
+        _write_section_files(self.section_dir)
+        bank = recall.load_memory(self.master, self.section_dir)
+        self.assertEqual(len(bank.experiences), 2)
+        bak = self.tmp / "MEMORY.md.bak"
+        self.assertFalse(bak.exists())
+
+    def test_no_auto_migrate_for_curated_master(self):
+        self.master.write_text(recall.CURATED_MASTER_TEMPLATE, encoding="utf-8")
+        bank = recall.load_memory(self.master, self.section_dir)
+        self.assertEqual(len(bank.experiences), 0)
+        self.assertFalse(self.section_dir.exists())
+
+    def test_second_load_uses_section_files(self):
+        recall.load_memory(self.master, self.section_dir)
+        bank2 = recall.load_memory(self.master, self.section_dir)
+        self.assertEqual(len(bank2.experiences), 4)
+
+
 if __name__ == "__main__":
     unittest.main()
