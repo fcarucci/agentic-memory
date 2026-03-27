@@ -1528,6 +1528,8 @@ class TestSkillConfig(unittest.TestCase):
         hints = manage.build_config_hints(p)
         self.assertNotIn("load_error", hints)
         self.assertTrue(hints["validation"]["valid"])
+        self.assertIsNone(hints.get("host"))
+        self.assertEqual(hints.get("hosts_defined"), [])
         self.assertEqual(hints["subagent_models"]["remember"]["via"], "direct")
         self.assertEqual(hints["subagent_models"]["remember"]["model_id"], "raw-mini-model")
         self.assertEqual(hints["subagent_models"]["reflect"]["model_id"], "flagship")
@@ -1616,6 +1618,59 @@ class TestSkillConfig(unittest.TestCase):
             data = json.loads(cfg_path.read_text(encoding="utf-8"))
             self.assertEqual(data["version"], 1)
             self.assertEqual(set(data["actions"]), manage.SUBAGENT_ACTIONS)
+            self.assertIn("hosts", data)
+            self.assertEqual(data["hosts"], {})
+
+    def test_config_hints_per_host_presets(self):
+        root = Path(tempfile.mkdtemp())
+        p = root / "memory-skill.config.json"
+        p.write_text(
+            json.dumps(
+                {
+                    "presets": {
+                        "strong": "g-strong",
+                        "balanced": "g-bal",
+                        "fast": "g-fast",
+                    },
+                    "actions": {
+                        "remember": "fast",
+                        "reflect": "strong",
+                        "maintain": "balanced",
+                        "promote": "balanced",
+                    },
+                    "hosts": {
+                        "codex": {
+                            "presets": {"fast": "codex-light"},
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        g = manage.build_config_hints(p, host=None)
+        self.assertTrue(g["validation"]["valid"])
+        self.assertEqual(g["subagent_models"]["remember"]["model_id"], "g-fast")
+        self.assertEqual(g["hosts_defined"], ["codex"])
+        c = manage.build_config_hints(p, host="codex")
+        self.assertEqual(c["host"], "codex")
+        self.assertEqual(c["subagent_models"]["remember"]["model_id"], "codex-light")
+
+    def test_validate_warns_unknown_host_key(self):
+        root = Path(tempfile.mkdtemp())
+        p = root / "memory-skill.config.json"
+        p.write_text(
+            json.dumps(
+                {
+                    "hosts": {
+                        "vim": {"presets": {"strong": "x", "balanced": "y", "fast": "z"}},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        cfg = manage.load_skill_config(p)
+        vr = manage.validate_skill_config_structure(cfg)
+        self.assertTrue(any("vim" in w for w in vr["warnings"]))
 
 
 if __name__ == "__main__":

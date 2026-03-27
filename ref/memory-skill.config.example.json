@@ -14,5 +14,28 @@
   },
   "overrides": {
     "remember_when_auto_reflect": "strong"
+  },
+  "hosts": {
+    "cursor": {
+      "presets": {
+        "strong": "cursor-reasoning-model-id",
+        "balanced": "cursor-default-model-id",
+        "fast": "cursor-fast-model-id"
+      }
+    },
+    "claude": {
+      "presets": {
+        "strong": "claude-reasoning-model-id",
+        "balanced": "claude-default-model-id",
+        "fast": "claude-fast-model-id"
+      }
+    },
+    "codex": {
+      "presets": {
+        "strong": "codex-reasoning-model-id",
+        "balanced": "codex-default-model-id",
+        "fast": "codex-fast-model-id"
+      }
+    }
   }
 }

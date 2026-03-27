@@ -1,6 +1,8 @@
 # Agent Memory (skill)
 
-Persistent, **structured agent memory** stored as Markdown—not a vector database. The skill coordinates **retain → recall → reflect** workflows; validation, deduplication, and structured recall are implemented by helpers shipped with the skill (see **`ref/scripts.md`**).
+Your coding agent doesn’t have to start from zero every session. **Agent Memory** is a small, opinionated system that actually *keeps* what matters—facts, hunches, war stories, and the occasional hard-won reflection—so the next run can pick up where the last one left off.
+
+No vector DB, no hosted black box: just **Markdown on disk**, a clear **retain → recall → reflect** loop, and stdlib helpers that keep writes safe and reads searchable. It’s built for operators who want memory they can **read, diff, and commit**, not embeddings they have to trust blindly.
 
 ## What this skill does
 
@@ -9,6 +11,7 @@ Persistent, **structured agent memory** stored as Markdown—not a vector databa
 - **Curated master `MEMORY.md`** at scope root—a compact subset of world knowledge, beliefs, and entity summaries suitable for direct inclusion in `AGENTS.md`.
 - **Operations:** remember (guarded write), show/recall (read & search), reflect, maintain, promote (user → project), forget, **migrate** (single → multi-file), **curate** (regenerate master from section files).
 - **Helpers:** recall and management capabilities live under **`skills/memory/scripts/`** (stdlib only, no extra packages). See **`ref/scripts.md`**.
+- **Per-product model presets (integrators):** optional **`hosts.cursor`**, **`hosts.claude`**, **`hosts.codex`** in **`~/.agents/memory/memory-skill.config.json`**, with **`MEMORY_SKILL_HOST`** selecting which block merges at runtime—see [Configuration options](#configuration-options).
 - **Backward compatible:** if only a single `MEMORY.md` exists (legacy layout), loading falls back to that file until section layout is used.
 
 Authoritative behavior and trigger phrases live in **`SKILL.md`**. This README is the on-ramp for humans and for wiring the skill into other products.
@@ -86,6 +89,8 @@ Requirements: **Python 3** available to the host that runs the skill’s stdlib 
 
 3. Point your **agent** instructions at **`SKILL.md`** (and optionally the [recommended `AGENTS.md` snippet](#recommended-agent-wiring-agentsmd)) so the agent performs recall and other memory actions—you do not invoke helpers yourself for day-to-day work.
 
+4. **Integrators only:** if you use [per-tool model presets](#subagent-model-presets-memory-skillconfigjson), set environment variable **`MEMORY_SKILL_HOST=cursor`** for sessions driven by Cursor so `hosts.cursor` in `~/.agents/memory/memory-skill.config.json` is applied when resolving subagent models (see **`ref/config.md`**).
+
 ### OpenAI Codex (CLI / IDE)
 
 1. Clone this repository so the skill root (where `SKILL.md` lives) is at **`$CODEX_HOME/skills/memory`**:
@@ -98,6 +103,8 @@ Requirements: **Python 3** available to the host that runs the skill’s stdlib 
 
 3. Use memory by having the **agent** follow **`SKILL.md`**. The agent runs the skill’s helpers in the right context for your project; you do not invoke them manually for normal work.
 
+4. **Integrators only:** set **`MEMORY_SKILL_HOST=codex`** when wiring config resolution for Codex so `hosts.codex` applies (see [Subagent model presets](#subagent-model-presets-memory-skillconfigjson)).
+
 ### Claude (Claude Code / team setups)
 
 1. Copy or symlink this repository so the skill root lives at **`.claude/skills/memory/`** (i.e. `.claude/skills/memory/SKILL.md`, `scripts/`, etc.).
@@ -105,6 +112,8 @@ Requirements: **Python 3** available to the host that runs the skill’s stdlib 
 2. Ensure Claude Code (or your team harness) loads skills from **`.claude/skills/`**.
 
 3. Use memory **only through the skill:** point **agent** rules at **`SKILL.md`** (and the [recommended `AGENTS.md` snippet](#recommended-agent-wiring-agentsmd) if you use that pattern). The **agent** follows the skill when **`SKILL.md`** says to—same model as Cursor and Codex. Do not invoke the skill’s helpers yourself for routine memory work.
+
+4. **Integrators only:** set **`MEMORY_SKILL_HOST=claude`** when wiring config resolution for Claude Code so `hosts.claude` applies (see [Subagent model presets](#subagent-model-presets-memory-skillconfigjson)).
 
 ## Using memory
 
@@ -125,6 +134,8 @@ Paste something minimal like this into repo or global agent instructions so beha
 ## Agent memory
 
 Read and follow [`skills/memory/SKILL.md`](skills/memory/SKILL.md) for every memory operation: session and pre-task recall, remember / reflect / maintain / promote, subagent spawns, and when supporting helpers may run. Do not edit `MEMORY.md` or per-section files directly for routine writes. Do not tell end users to invoke anything under `skills/memory/scripts/`; they use memory only through this skill.
+
+If you resolve memory subagent models from `memory-skill.config.json`, set **`MEMORY_SKILL_HOST`** to `cursor`, `claude`, or `codex` to match the active product so per-tool `hosts.*` entries apply (see [`ref/config.md`](ref/config.md)).
 ```
 
 Adjust paths if your install uses `.cursor/skills/memory/` or another prefix.
@@ -144,12 +155,26 @@ Hosts may pass an explicit memory file path when the skill’s workflows allow i
 
 ### Subagent model presets (`memory-skill.config.json`)
 
-Optional JSON next to user `MEMORY.md`: **`~/.agents/memory/memory-skill.config.json`**. Maps memory **subagent** actions (`remember`, `reflect`, `maintain`, `promote`) to named presets or direct model ids so orchestrators can spawn with a **stronger** model for reflect and a **cheaper** one for routine retains when appropriate.
+**Audience:** integrators wiring subagent spawns (Cursor, Claude Code, Codex, or custom hosts)—not end users.
+
+Optional file next to user `MEMORY.md`: **`~/.agents/memory/memory-skill.config.json`**. It maps memory **subagent** actions (`remember`, `reflect`, `maintain`, `promote`) to **preset names** or **direct model ids**, and optional **overrides** (e.g. a stronger model when auto-reflect runs after retain). Goal: use a **cheaper** model for routine retains and a **stronger** one for reflect when your platform allows it.
+
+| Layer | Purpose |
+|-------|---------|
+| **Global** (`presets`, `actions`, `overrides`, `default_preset`) | Default routing for every product unless a **host** block overrides it. |
+| **`hosts.cursor`**, **`hosts.claude`**, **`hosts.codex`** | Per-tool overrides. Each block may define its own `presets` and/or `actions` and/or `overrides` and/or `default_preset`. Values are **merged over** the global layer for that product only—omit a tool entirely if global settings are enough. |
+
+**Merge order for one product:** start from the global fields, then apply `hosts.<tool>` on top. Preset **names** (`strong`, `balanced`, `fast`) stay stable; the **model id strings** inside `presets` differ per vendor (see the example file).
+
+**Selecting the active tool:** set **`MEMORY_SKILL_HOST`** to **`cursor`**, **`claude`**, or **`codex`** in the environment used when your integration resolves models (e.g. before running the management helper’s **config-hints** step). That picks which `hosts.*` block merges in. Match the variable to the product: Cursor → `cursor`, Claude Code → `claude`, OpenAI Codex → `codex`. The helper’s **config-hints** command also accepts **`--host`** with the same three values; the flag overrides **`MEMORY_SKILL_HOST`** when both are set.
+
+**Alternate config file location:** **`MEMORY_SKILL_CONFIG_PATH`** points at a different JSON path (tests or nonstandard layouts).
+
+**Further reading:**
 
 - **Spec:** [`ref/config.md`](ref/config.md)
-- **Example:** [`ref/memory-skill.config.example.json`](ref/memory-skill.config.example.json)
-- **Validate / resolved model hints for spawns:** see [`ref/config.md`](ref/config.md) and [`ref/scripts.md`](ref/scripts.md) (host / maintainer—not operator-facing).
-- **Override path:** env `MEMORY_SKILL_CONFIG_PATH` or per-run skill-config override as described in [`ref/config.md`](ref/config.md).
+- **Example (global + all three `hosts` stubs):** [`ref/memory-skill.config.example.json`](ref/memory-skill.config.example.json)
+- **What the helpers expose:** [`ref/scripts.md`](ref/scripts.md) (no copy-paste shell; see **`SKILL.md`** for agent procedure)
 
 ### Scopes
 

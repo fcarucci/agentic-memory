@@ -108,6 +108,7 @@ DEFAULT_USER_SKILL_CONFIG: dict = {
     "overrides": {
         "remember_when_auto_reflect": "strong",
     },
+    "hosts": {},
 }
 
 # Legacy single-file template (used for backward-compat validation only).

@@ -149,6 +149,8 @@ Full schema, defaults, rationale, and how to obtain resolved model ids: **`ref/c
 
 Before spawning a memory subagent, the host resolves `model_id` for the matching action per **`ref/config.md`** (or honors `model_preset` on the subagent payload when the user overrides). Use **`overrides.remember_when_auto_reflect`** when splitting a cheap retain pass from a stronger auto-reflect pass.
 
+**Per product (Cursor vs Claude vs Codex):** optional **`hosts.cursor`**, **`hosts.claude`**, and **`hosts.codex`** in `memory-skill.config.json` override presets (and optionally `actions` / `overrides`) for that tool only. Set environment variable **`MEMORY_SKILL_HOST`** to `cursor`, `claude`, or `codex` when running **config-hints** so the merged routing matches the active product (see **`ref/config.md`**).
+
 ## Invocation examples
 
 ### Remember (spawn subagent)

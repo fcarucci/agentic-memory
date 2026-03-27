@@ -46,9 +46,11 @@ def resolve_section_path(scope: str, section: str) -> Path:
 # --- Subagent model config (memory-skill.config.json, user memory dir) ---
 
 SKILL_CONFIG_ENV = "MEMORY_SKILL_CONFIG_PATH"
+MEMORY_SKILL_HOST_ENV = "MEMORY_SKILL_HOST"
+KNOWN_MEMORY_HOSTS = frozenset({"cursor", "claude", "codex"})
 SUBAGENT_ACTIONS = frozenset({"remember", "reflect", "maintain", "promote"})
 SKILL_CONFIG_TOP_LEVEL = frozenset({
-    "version", "default_preset", "presets", "actions", "overrides",
+    "version", "default_preset", "presets", "actions", "overrides", "hosts",
 })
 OPTIONAL_OVERRIDE_KEYS = frozenset({"remember_when_auto_reflect"})
 
@@ -83,6 +85,23 @@ def merge_skill_config(base: dict[str, Any], user: dict[str, Any]) -> dict[str, 
             if isinstance(k, str) and isinstance(v, str):
                 ov[k] = v
         out["overrides"] = ov
+    if isinstance(user.get("hosts"), dict):
+        out_hosts: dict[str, Any] = dict(out.get("hosts") or {})
+        for hk, hv in user["hosts"].items():
+            if not isinstance(hk, str) or not isinstance(hv, dict):
+                continue
+            prev = dict(out_hosts.get(hk) or {})
+            if isinstance(hv.get("default_preset"), str) and hv["default_preset"].strip():
+                prev["default_preset"] = hv["default_preset"]
+            for sub in ("presets", "actions", "overrides"):
+                if isinstance(hv.get(sub), dict):
+                    sub_prev = dict(prev.get(sub) or {})
+                    for sk, sv in hv[sub].items():
+                        if isinstance(sk, str) and isinstance(sv, str):
+                            sub_prev[sk] = sv
+                    prev[sub] = sub_prev
+            out_hosts[hk] = prev
+        out["hosts"] = out_hosts
     return out
 
 
@@ -122,6 +141,134 @@ def resolve_action_model(presets: dict[str, str], raw_value: str) -> dict[str, A
     }
 
 
+def _vc_msg(path_prefix: str, message: str) -> str:
+    return f"{path_prefix}: {message}" if path_prefix else message
+
+
+def effective_host_config(cfg: dict[str, Any], host: Optional[str]) -> dict[str, Any]:
+    """Return merged ``default_preset`` / ``presets`` / ``actions`` / ``overrides`` for *host*.
+
+    *host* ``None`` means use top-level fields only. Known hosts merge their
+    ``hosts.<name>`` block over the global defaults.
+    """
+    presets: dict[str, str] = dict(cfg.get("presets") or {})
+    actions: dict[str, str] = dict(cfg.get("actions") or {})
+    default_preset = str(cfg.get("default_preset") or "")
+    overrides: dict[str, str] = dict(cfg.get("overrides") or {})
+    if not host:
+        return {
+            "default_preset": default_preset,
+            "presets": presets,
+            "actions": actions,
+            "overrides": overrides,
+        }
+    block = (cfg.get("hosts") or {}).get(host)
+    if not isinstance(block, dict) or not block:
+        return {
+            "default_preset": default_preset,
+            "presets": presets,
+            "actions": actions,
+            "overrides": overrides,
+        }
+    if isinstance(block.get("default_preset"), str) and block["default_preset"].strip():
+        default_preset = block["default_preset"]
+    if isinstance(block.get("presets"), dict):
+        for k, v in block["presets"].items():
+            if isinstance(k, str) and isinstance(v, str):
+                presets[k] = v
+    if isinstance(block.get("actions"), dict):
+        for k, v in block["actions"].items():
+            if isinstance(k, str) and isinstance(v, str):
+                actions[k] = v
+    if isinstance(block.get("overrides"), dict):
+        for k, v in block["overrides"].items():
+            if isinstance(k, str) and isinstance(v, str):
+                overrides[k] = v
+    return {
+        "default_preset": default_preset,
+        "presets": presets,
+        "actions": actions,
+        "overrides": overrides,
+    }
+
+
+def resolve_memory_host(explicit: Optional[str]) -> Optional[str]:
+    """Return ``cursor`` / ``claude`` / ``codex`` from CLI or ``MEMORY_SKILL_HOST``."""
+    if explicit is not None and str(explicit).strip():
+        h = str(explicit).strip().lower()
+        if h in KNOWN_MEMORY_HOSTS:
+            return h
+    env = os.environ.get(MEMORY_SKILL_HOST_ENV, "").strip().lower()
+    if env in KNOWN_MEMORY_HOSTS:
+        return env
+    return None
+
+
+def _validate_merged_routing(
+    data: dict[str, Any],
+    *,
+    path_prefix: str,
+) -> tuple[list[str], list[str]]:
+    """Validate presets / actions / default_preset / overrides for one routing view."""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    presets = data.get("presets")
+    if not isinstance(presets, dict) or not presets:
+        errors.append(_vc_msg(path_prefix, "'presets' must be a non-empty object"))
+    else:
+        for pk, pv in presets.items():
+            if not isinstance(pk, str) or not isinstance(pv, str):
+                errors.append(_vc_msg(path_prefix, "all preset keys and values must be strings"))
+                break
+            if not pv.strip():
+                errors.append(_vc_msg(path_prefix, f"preset {pk!r} has empty model id"))
+
+    default_preset = data.get("default_preset", "")
+    if isinstance(presets, dict) and default_preset not in presets:
+        errors.append(
+            _vc_msg(
+                path_prefix,
+                f"default_preset {default_preset!r} is not a key in presets",
+            )
+        )
+
+    actions = data.get("actions")
+    if not isinstance(actions, dict) or not actions:
+        errors.append(_vc_msg(path_prefix, "'actions' must be a non-empty object"))
+    else:
+        missing_actions = SUBAGENT_ACTIONS - set(actions.keys())
+        if missing_actions:
+            errors.append(
+                _vc_msg(
+                    path_prefix,
+                    "actions missing required keys: " + ", ".join(sorted(missing_actions)),
+                )
+            )
+        for ak in actions:
+            if ak not in SUBAGENT_ACTIONS:
+                errors.append(_vc_msg(path_prefix, f"unknown action key: {ak!r}"))
+        for ak, av in actions.items():
+            if ak not in SUBAGENT_ACTIONS:
+                continue
+            if not isinstance(av, str) or not av.strip():
+                errors.append(_vc_msg(path_prefix, f"actions.{ak} must be a non-empty string"))
+
+    overrides = data.get("overrides", {})
+    if overrides is None:
+        overrides = {}
+    if not isinstance(overrides, dict):
+        errors.append(_vc_msg(path_prefix, "'overrides' must be an object when present"))
+    else:
+        for ok in overrides:
+            if ok not in OPTIONAL_OVERRIDE_KEYS:
+                warnings.append(
+                    _vc_msg(path_prefix, f"unknown overrides key (forward-compat): {ok!r}")
+                )
+
+    return errors, warnings
+
+
 def validate_skill_config_structure(data: dict[str, Any]) -> dict[str, Any]:
     """Validate merged config. Returns ``valid``, ``errors``, ``warnings``."""
     errors: list[str] = []
@@ -135,54 +282,34 @@ def validate_skill_config_structure(data: dict[str, Any]) -> dict[str, Any]:
     if ver != 1:
         errors.append(f"unsupported version: {ver!r} (expected 1)")
 
-    presets = data.get("presets")
-    if not isinstance(presets, dict) or not presets:
-        errors.append("'presets' must be a non-empty object")
-    else:
-        for pk, pv in presets.items():
-            if not isinstance(pk, str) or not isinstance(pv, str):
-                errors.append("all preset keys and values must be strings")
-                break
-            if not pv.strip():
-                errors.append(f"preset {pk!r} has empty model id")
+    global_eff = effective_host_config(data, None)
+    e, w = _validate_merged_routing(global_eff, path_prefix="")
+    errors.extend(e)
+    warnings.extend(w)
 
-    default_preset = data.get("default_preset", "")
-    if isinstance(presets, dict) and default_preset not in presets:
-        errors.append(
-            f"default_preset {default_preset!r} is not a key in presets"
-        )
-
-    actions = data.get("actions")
-    if not isinstance(actions, dict) or not actions:
-        errors.append("'actions' must be a non-empty object")
-    else:
-        missing_actions = SUBAGENT_ACTIONS - set(actions.keys())
-        if missing_actions:
-            errors.append(
-                "actions missing required keys: "
-                + ", ".join(sorted(missing_actions))
-            )
-        for ak in actions:
-            if ak not in SUBAGENT_ACTIONS:
-                errors.append(f"unknown action key: {ak!r}")
-        for ak, av in actions.items():
-            if ak not in SUBAGENT_ACTIONS:
-                continue
-            if not isinstance(av, str) or not av.strip():
-                errors.append(f"actions.{ak} must be a non-empty string")
-            elif isinstance(presets, dict) and av not in presets:
-                # Direct model id — allowed
-                pass
-
-    overrides = data.get("overrides", {})
-    if overrides is None:
-        overrides = {}
-    if not isinstance(overrides, dict):
-        errors.append("'overrides' must be an object when present")
-    else:
-        for ok in overrides:
-            if ok not in OPTIONAL_OVERRIDE_KEYS:
-                warnings.append(f"unknown overrides key (forward-compat): {ok!r}")
+    hosts = data.get("hosts", None)
+    if hosts is not None:
+        if not isinstance(hosts, dict):
+            errors.append("'hosts' must be an object when present")
+        else:
+            for hk, hv in hosts.items():
+                if not isinstance(hk, str):
+                    errors.append("hosts keys must be strings")
+                    continue
+                if hk not in KNOWN_MEMORY_HOSTS:
+                    warnings.append(
+                        "unknown hosts key "
+                        f"(allowed: {', '.join(sorted(KNOWN_MEMORY_HOSTS))}): {hk!r}"
+                    )
+                if not isinstance(hv, dict):
+                    errors.append(f"hosts.{hk} must be an object")
+                    continue
+                if not hv:
+                    continue
+                eff = effective_host_config(data, hk)
+                e2, w2 = _validate_merged_routing(eff, path_prefix=f"hosts.{hk}")
+                errors.extend(e2)
+                warnings.extend(w2)
 
     return {
         "valid": len(errors) == 0,
@@ -191,7 +318,10 @@ def validate_skill_config_structure(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_config_hints(config_path: Optional[Path] = None) -> dict[str, Any]:
+def build_config_hints(
+    config_path: Optional[Path] = None,
+    host: Optional[str] = None,
+) -> dict[str, Any]:
     """Structured output for orchestrators spawning memory subagents."""
     path = resolve_skill_config_path(config_path)
     exists = path.exists()
@@ -202,28 +332,39 @@ def build_config_hints(config_path: Optional[Path] = None) -> dict[str, Any]:
             "config_path": str(path),
             "config_exists": exists,
             "load_error": str(e),
+            "host": host,
+            "hosts_defined": [],
             "subagent_models": {},
             "optional_escalation": {},
         }
 
-    presets: dict[str, str] = dict(cfg.get("presets") or {})
     vr = validate_skill_config_structure(cfg)
+    hosts_defined = sorted(
+        hk
+        for hk, hv in (cfg.get("hosts") or {}).items()
+        if isinstance(hk, str) and isinstance(hv, dict) and hv
+    )
     if not vr["valid"]:
         return {
             "config_path": str(path),
             "config_exists": exists,
             "version": cfg.get("version", 1),
             "validation": vr,
+            "host": host,
+            "hosts_defined": hosts_defined,
             "subagent_models": {},
             "optional_escalation": {},
             "note": "Resolve validation errors before using subagent_models.",
         }
 
+    eff = effective_host_config(cfg, host)
+    presets: dict[str, str] = dict(eff.get("presets") or {})
+
     subagent_models: dict[str, Any] = {}
     for action in sorted(SUBAGENT_ACTIONS):
-        raw = (cfg.get("actions") or {}).get(action)
+        raw = (eff.get("actions") or {}).get(action)
         if not raw:
-            dp = cfg.get("default_preset", "")
+            dp = eff.get("default_preset", "")
             raw = dp if dp in presets else ""
         if not raw:
             subagent_models[action] = {
@@ -233,7 +374,7 @@ def build_config_hints(config_path: Optional[Path] = None) -> dict[str, Any]:
         subagent_models[action] = resolve_action_model(presets, raw)
 
     optional_escalation: dict[str, Any] = {}
-    overrides = cfg.get("overrides") or {}
+    overrides = eff.get("overrides") or {}
     if isinstance(overrides, dict):
         raw_esc = overrides.get("remember_when_auto_reflect")
         if isinstance(raw_esc, str) and raw_esc.strip():
@@ -246,11 +387,15 @@ def build_config_hints(config_path: Optional[Path] = None) -> dict[str, Any]:
         "config_exists": exists,
         "version": cfg.get("version", 1),
         "validation": vr,
+        "host": host,
+        "hosts_defined": hosts_defined,
         "subagent_models": subagent_models,
         "optional_escalation": optional_escalation,
         "note": (
             "Use subagent_models when spawning memory subagents. "
-            "optional_escalation applies if the host splits retain vs auto-reflect."
+            "optional_escalation applies if the host splits retain vs auto-reflect. "
+            "Set host to cursor, claude, or codex (CLI --host or MEMORY_SKILL_HOST) "
+            "to use per-tool presets/actions in hosts.<name>."
         ),
     }
 
@@ -287,6 +432,11 @@ def run_validate_config(config_path: Optional[Path] = None) -> dict[str, Any]:
     if vr["valid"]:
         out["presets"] = list((cfg.get("presets") or {}).keys())
         out["actions"] = list((cfg.get("actions") or {}).keys())
+        out["hosts"] = sorted(
+            hk
+            for hk, hv in (cfg.get("hosts") or {}).items()
+            if isinstance(hk, str) and isinstance(hv, dict) and hv
+        )
     return out
 
 
@@ -1636,9 +1786,18 @@ def main():
         "validate-config",
         help="Validate memory-skill.config.json (user memory dir; see ref/config.md)",
     )
-    sub.add_parser(
+    ch_parser = sub.add_parser(
         "config-hints",
         help="Print resolved model ids for memory subagent actions",
+    )
+    ch_parser.add_argument(
+        "--host",
+        choices=sorted(KNOWN_MEMORY_HOSTS),
+        default=None,
+        help=(
+            "Tool: cursor, claude, or codex — use hosts.<name> merge "
+            f"(default: global only; env {MEMORY_SKILL_HOST_ENV} when flag omitted)"
+        ),
     )
 
     args = parser.parse_args()
@@ -1792,7 +1951,8 @@ def main():
     elif args.command == "validate-config":
         result = run_validate_config(args.skill_config)
     elif args.command == "config-hints":
-        result = build_config_hints(args.skill_config)
+        h = resolve_memory_host(args.host)
+        result = build_config_hints(args.skill_config, host=h)
     else:
         parser.error(f"Unknown command: {args.command}")
         return

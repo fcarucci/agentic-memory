@@ -17,6 +17,20 @@ Keep **behavioral tuning** (skepticism, literalism, etc.) in `profile.json`. Thi
 | `presets` | object | Maps preset name → opaque model identifier your host understands (API id, Cursor model alias, etc.). |
 | `actions` | object | Maps subagent action → preset name **or** a raw model id string (if the value is not a key in `presets`, it is treated as the model id). |
 | `overrides` | object | Optional. Keys defined by the skill; hosts may use them for conditional routing. |
+| `hosts` | object | Optional. Per-tool overrides: keys **`cursor`**, **`claude`**, **`codex`**. Each value is an object with optional `default_preset`, `presets`, `actions`, and `overrides` merged **over** the top-level fields for that tool only. |
+
+### Per-tool routing (`hosts`)
+
+Use **`hosts`** when the same preset **name** (`fast`, `balanced`, `strong`) should map to **different real model ids** in Cursor vs Claude Code vs OpenAI Codex.
+
+Merge order for a given tool:
+
+1. Top-level `presets` / `actions` / `overrides` / `default_preset`
+2. `hosts.<tool>.*` overlaid on top (only keys you set)
+
+Omit a tool entirely to use global routing only for that product.
+
+**Selecting the tool at runtime:** set environment variable **`MEMORY_SKILL_HOST`** to `cursor`, `claude`, or `codex` before running **config-hints**, or pass **`--host`** on **config-hints** (CLI flag wins over env when both are set).
 
 ### `actions` keys (subagent operations)
 
@@ -49,7 +63,7 @@ The **management helper** exposes JSON-only operations for this file:
 | Operation | Purpose |
 |-----------|---------|
 | **validate-config** | Check syntax and known keys (uses defaults if the file is missing). |
-| **config-hints** | Emit resolved model ids per subagent action for spawn instructions. |
+| **config-hints** | Emit resolved model ids per subagent action. Use **`--host cursor|claude|codex`** or **`MEMORY_SKILL_HOST`** so **`hosts.<tool>`** merges apply. |
 
 For nonstandard layouts or tests, the host may supply an alternate config path via the **`MEMORY_SKILL_CONFIG_PATH`** environment variable or the helper’s per-run skill-config override (see helper sources under `skills/memory/scripts/`).
 
@@ -63,7 +77,4 @@ On first use of **user** scope, recall and management operations create `~/.agen
 
 ## Copying the example
 
-```bash
-cp skills/memory/ref/memory-skill.config.example.json ~/.agents/memory/memory-skill.config.json
-# Edit presets to match your environment.
-```
+Copy `skills/memory/ref/memory-skill.config.example.json` to `~/.agents/memory/memory-skill.config.json`, then edit preset strings (global and under each `hosts` entry) to match each product’s model ids.
