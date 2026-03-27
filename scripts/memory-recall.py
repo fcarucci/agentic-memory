@@ -2,8 +2,8 @@
 """Structured recall over MEMORY.md (user and project scopes).
 
 Supports two memory tiers:
-  - User memory:    ~/.agents/memory/MEMORY.md by default (personal); overridable via env.
-  - Project memory: resolved per run (cwd / env); see resolve_project_memory_path().
+  - User memory:    ~/.agents/memory/MEMORY.md (personal, fixed path).
+  - Project memory: resolved per run from cwd and script location; see resolve_project_memory_path().
 
 Recall searches both by default. Results are tagged with their source
 scope so the caller can distinguish personal from shared memories.
@@ -20,20 +20,12 @@ Usage:
 
 import argparse
 import json
-import os
 import re
 import sys
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
-
-# Override project memory location (optional).
-ENV_PROJECT_FILE = "AGENT_MEMORY_PROJECT_FILE"  # absolute or relative path to MEMORY.md
-ENV_PROJECT_ROOT = "AGENT_MEMORY_PROJECT_ROOT"  # directory; uses <root>/MEMORY.md
-# Override user memory location (optional).
-ENV_USER_FILE = "AGENT_MEMORY_USER_FILE"
-ENV_USER_ROOT = "AGENT_MEMORY_USER_ROOT"
 
 DEFAULT_USER_MEMORY_DIR = Path.home() / ".agents" / "memory"
 DEFAULT_USER_MEMORY_PATH = DEFAULT_USER_MEMORY_DIR / "MEMORY.md"
@@ -53,18 +45,10 @@ def resolve_project_memory_path() -> Path:
     """Resolve the project-scope MEMORY.md path.
 
     Precedence:
-    1. ``AGENT_MEMORY_PROJECT_FILE`` — path to the file.
-    2. ``AGENT_MEMORY_PROJECT_ROOT`` — directory containing ``MEMORY.md``.
-    3. Walk ``Path.cwd()`` upward for the first ``MEMORY.md``.
-    4. Walk upward from this script's directory (skill may live anywhere under the repo).
-    5. ``Path.cwd() / "MEMORY.md"`` (file may not exist yet).
+    1. Walk ``Path.cwd()`` upward for the first ``MEMORY.md``.
+    2. Walk upward from this script's directory (skill may live anywhere under the repo).
+    3. ``Path.cwd() / "MEMORY.md"`` (file may not exist yet).
     """
-    raw_file = os.environ.get(ENV_PROJECT_FILE, "").strip()
-    if raw_file:
-        return Path(raw_file).expanduser().resolve()
-    raw_root = os.environ.get(ENV_PROJECT_ROOT, "").strip()
-    if raw_root:
-        return Path(raw_root).expanduser().resolve() / "MEMORY.md"
     found = _first_memory_md_in_parents(Path.cwd())
     if found:
         return found
@@ -76,19 +60,7 @@ def resolve_project_memory_path() -> Path:
 
 
 def resolve_user_memory_path() -> Path:
-    """Resolve the user-scope MEMORY.md path.
-
-    Precedence:
-    1. ``AGENT_MEMORY_USER_FILE``
-    2. ``AGENT_MEMORY_USER_ROOT`` / ``MEMORY.md``
-    3. Default: ``~/.agents/memory/MEMORY.md``
-    """
-    raw_file = os.environ.get(ENV_USER_FILE, "").strip()
-    if raw_file:
-        return Path(raw_file).expanduser().resolve()
-    raw_root = os.environ.get(ENV_USER_ROOT, "").strip()
-    if raw_root:
-        return Path(raw_root).expanduser().resolve() / "MEMORY.md"
+    """Return the user-scope MEMORY.md path (``~/.agents/memory/MEMORY.md``)."""
     return DEFAULT_USER_MEMORY_PATH
 
 

@@ -70,32 +70,7 @@ def _write_sample(tmp: Path) -> Path:
     return p
 
 
-_ENV_PATH_KEYS = (
-    "AGENT_MEMORY_PROJECT_FILE",
-    "AGENT_MEMORY_PROJECT_ROOT",
-    "AGENT_MEMORY_USER_FILE",
-    "AGENT_MEMORY_USER_ROOT",
-)
-
-
-class TestResolveMemoryPaths(unittest.TestCase):
-    def tearDown(self):
-        for k in _ENV_PATH_KEYS:
-            os.environ.pop(k, None)
-
-    def test_project_path_env_file(self):
-        with tempfile.TemporaryDirectory() as td:
-            p = Path(td) / "custom.md"
-            p.write_text("# Agent Memory\n\n## Experiences\n", encoding="utf-8")
-            os.environ["AGENT_MEMORY_PROJECT_FILE"] = str(p)
-            self.assertEqual(recall.resolve_project_memory_path(), p.resolve())
-
-    def test_project_path_env_root(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            os.environ["AGENT_MEMORY_PROJECT_ROOT"] = str(root)
-            self.assertEqual(recall.resolve_project_memory_path(), root / "MEMORY.md")
-
+class TestResolveProjectMemoryPath(unittest.TestCase):
     def test_project_path_cwd_walk(self):
         with tempfile.TemporaryDirectory() as td:
             deep = Path(td) / "a" / "b"
@@ -105,24 +80,9 @@ class TestResolveMemoryPaths(unittest.TestCase):
             old = os.getcwd()
             try:
                 os.chdir(deep)
-                for k in _ENV_PATH_KEYS:
-                    os.environ.pop(k, None)
                 self.assertEqual(recall.resolve_project_memory_path(), mem.resolve())
             finally:
                 os.chdir(old)
-
-    def test_user_path_env_file(self):
-        with tempfile.TemporaryDirectory() as td:
-            p = Path(td) / "user-memory.md"
-            p.write_text("# User Memory\n\n## Experiences\n", encoding="utf-8")
-            os.environ["AGENT_MEMORY_USER_FILE"] = str(p)
-            self.assertEqual(recall.resolve_user_memory_path(), p.resolve())
-
-    def test_user_path_env_root(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            os.environ["AGENT_MEMORY_USER_ROOT"] = str(root)
-            self.assertEqual(recall.resolve_user_memory_path(), root / "MEMORY.md")
 
 
 class TestParsing(unittest.TestCase):

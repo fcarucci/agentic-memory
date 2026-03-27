@@ -29,15 +29,13 @@ Requirements: **Python 3** on `PATH` (`python3`). Scripts are plain stdlib.
 
 ### Where `MEMORY.md` is found (project scope)
 
-The skill **does not assume** a fixed folder layout. **`memory-recall.py`** and **`memory-manage.py`** resolve the project file in this order:
+The skill **does not assume** a fixed install path (no required `skills/memory/` depth). **`memory-recall.py`** and **`memory-manage.py`** resolve the **project** `MEMORY.md` in this order—**without environment variables**:
 
-1. **`AGENT_MEMORY_PROJECT_FILE`** — explicit path to `MEMORY.md`.
-2. **`AGENT_MEMORY_PROJECT_ROOT`** — directory; the file is `<root>/MEMORY.md`.
-3. Walk **upward from the current working directory** and use the first `MEMORY.md` found (typical when the agent runs from the repo root or a subdirectory).
-4. Walk **upward from the script’s directory** (so the skill can live under `.cursor/skills/memory`, `skills/memory`, or anywhere else **inside** the repo tree and still find the project’s `MEMORY.md`).
-5. If nothing exists yet: **`./MEMORY.md`** relative to the current working directory (creates a natural default when you start from the project root).
+1. Walk **upward from the process current working directory** and use the first `MEMORY.md` found (run tools from the repo root or any subdirectory under it).
+2. Walk **upward from the script’s directory** so the skill can live under `.cursor/skills/memory`, `skills/memory`, or elsewhere **inside** the tree and still find the project file.
+3. If no file exists yet: **`./MEMORY.md`** relative to the current working directory (natural default when cwd is the project root).
 
-**User** memory defaults to `~/.agents/memory/MEMORY.md` unless you set **`AGENT_MEMORY_USER_FILE`** or **`AGENT_MEMORY_USER_ROOT`** (see [Configuration options](#configuration-options)).
+**User** memory is always **`~/.agents/memory/MEMORY.md`** (created by `init-user`).
 
 ### Cursor
 
@@ -76,7 +74,7 @@ git clone git@github.com:fcarucci/agent-memory.git "$CODEX_HOME/skills/memory"
 
 If you use a **project-relative** skill path instead, mirror the same **flat** layout: `…/memory/SKILL.md`, not `…/memory/agent-memory/SKILL.md`.
 
-Restart or refresh Codex so new skills are discovered. Prefer running tools with **cwd = project root**, or set **`AGENT_MEMORY_PROJECT_FILE`** / **`AGENT_MEMORY_PROJECT_ROOT`** so project memory is unambiguous.
+Restart or refresh Codex so new skills are discovered. Run memory scripts with **cwd** under the project tree (ideally the repo root) so upward discovery finds the correct `MEMORY.md`.
 
 ### Claude (Claude Code / team setups)
 
@@ -138,22 +136,18 @@ For write operations, memory subagents must read `SKILL.md` and the referenced `
 
 Adjust **`skills/memory/`** in every path if your install uses `.cursor/skills/memory/` or another prefix.
 
-**Optional:** if the agent’s working directory is not the repo root, set **`AGENT_MEMORY_PROJECT_ROOT`** or **`AGENT_MEMORY_PROJECT_FILE`** in the environment (see [Configuration options](#configuration-options)).
+**Working directory:** agents should run memory commands from the **project checkout** (root or a subfolder). If cwd is outside the repo (e.g. `/tmp`), discovery may pick up another tree’s `MEMORY.md` via the script path or resolve to `./MEMORY.md` under that cwd—avoid that by standardizing on **repo-root cwd** in `AGENTS.md` / tool configs.
 
 ## Configuration options
 
-### Environment variables (paths)
+### Paths (no environment variables)
 
-| Variable | Effect |
-|----------|--------|
-| **`AGENT_MEMORY_PROJECT_FILE`** | Full path to the project `MEMORY.md` (highest precedence). |
-| **`AGENT_MEMORY_PROJECT_ROOT`** | Project directory; uses `<root>/MEMORY.md`. |
-| **`AGENT_MEMORY_USER_FILE`** | Full path to the user `MEMORY.md`. |
-| **`AGENT_MEMORY_USER_ROOT`** | Directory for user scope; uses `<root>/MEMORY.md`. |
+| Location | How it is chosen |
+|----------|------------------|
+| Project `MEMORY.md` | cwd walk → script-dir walk → `cwd/MEMORY.md` (see above). |
+| User `MEMORY.md` | Always `~/.agents/memory/MEMORY.md`. |
 
-If project variables are unset, resolution uses **cwd walk → script-directory walk → `./MEMORY.md`**, as described above. User scope defaults to **`~/.agents/memory/MEMORY.md`**.
-
-Set these in the agent environment, shell profile, or tool wrapper (Cursor / Codex / Claude) when cwd is not the repo or when multiple projects share one checkout.
+To use a different user or project file location, run the tools with **`memory-recall.py --file <path>`** (and the matching `--file` on `memory-manage.py` subcommands that support it), or adjust the resolver in code.
 
 ### Scopes (CLI)
 
