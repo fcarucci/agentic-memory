@@ -577,7 +577,7 @@ def validate(path: Path) -> dict:
             "Missing top-level heading (expected '# Agent Memory' or '# User Memory')"
         )
 
-    is_curated = "per-section files" in content
+    is_curated = _CURATED_MASTER_MARKER in content
     if not is_curated:
         for heading in ("## Experiences", "## World Knowledge", "## Beliefs", "## Reflections", "## Entity Summaries"):
             if heading not in content:
@@ -1081,6 +1081,21 @@ def _ensure_section_file(scope_label: str, section: str) -> Path:
     return recall_mod.ensure_section_file(section_dir, section)
 
 
+# Curated masters omit full sections; never treat arbitrary "per-section files" mentions as curated.
+_CURATED_MASTER_MARKER = "<!-- Curated subset"
+
+
+def _memory_master_is_curated(master_path: Path) -> bool:
+    """True when *master_path* is a curated subset file (not a legacy all-in-one journal)."""
+    if not master_path.exists():
+        return False
+    try:
+        head = master_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return _CURATED_MASTER_MARKER in head
+
+
 def _section_dir_for_path(master_path: Path, scope_label: str) -> Path:
     """Per-section directory implied by curated *master_path*."""
     if scope_label == "user":
@@ -1098,12 +1113,19 @@ def _resolve_section_backed_path(
     """Write target for *section*: ``<section>.md`` when section layout exists, else *master_path*."""
     master_path = _ensure_memory_file(master_path, scope_label)
     section_dir = _section_dir_for_path(master_path, scope_label)
-    if recall_mod.has_section_files(section_dir):
-        candidate = recall_mod.section_file_path(section_dir, section)
-        if create_missing and not candidate.exists():
-            return recall_mod.ensure_section_file(section_dir, section)
-        return candidate
-    return master_path
+    has_sections = recall_mod.has_section_files(section_dir)
+    curated = _memory_master_is_curated(master_path)
+    use_section_files = has_sections or curated
+    if not use_section_files:
+        return master_path
+
+    if curated and not has_sections and create_missing:
+        recall_mod.ensure_section_files(section_dir)
+
+    candidate = recall_mod.section_file_path(section_dir, section)
+    if create_missing and not candidate.exists():
+        return recall_mod.ensure_section_file(section_dir, section)
+    return candidate
 
 
 def _insert_entry(content: str, section: str, raw_line: str) -> tuple[bool, Optional[str]]:
@@ -1325,7 +1347,13 @@ def promote(
             "error": "Promotion requires explicit --allow-project-promotion approval",
         }
 
-    user_bank = recall_mod.load_memory(user_path, _section_dir_for_path(user_path, "user"))
+    user_path = _ensure_memory_file(user_path, "user")
+    user_section_dir = _section_dir_for_path(user_path, "user")
+    if _memory_master_is_curated(user_path) and not recall_mod.has_section_files(user_section_dir):
+        recall_mod.ensure_section_files(user_section_dir)
+    user_bank = recall_mod.load_memory(user_path, user_section_dir)
+
+    project_path = _ensure_memory_file(project_path, "project")
     project_target = _resolve_section_backed_path(
         project_path,
         "project",

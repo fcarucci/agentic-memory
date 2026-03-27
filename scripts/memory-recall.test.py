@@ -240,6 +240,23 @@ class TestValidation(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(any("Reflections" in e for e in result["errors"]))
 
+    def test_legacy_per_section_phrase_in_body_still_requires_reflections(self):
+        """Do not skip heading checks when an entry mentions per-section storage."""
+        p = self.tmp / "legacy-phrase-in-body.md"
+        p.write_text(
+            "# Agent Memory\n\n"
+            "## Experiences\n\n"
+            "- **2026-03-27** [docs] {entities: memory-layout} "
+            "We documented per-section files for the memory layout.\n\n"
+            "## World Knowledge\n\n"
+            "## Beliefs\n\n"
+            "## Entity Summaries\n",
+            encoding="utf-8",
+        )
+        result = manage.validate(p)
+        self.assertFalse(result["valid"])
+        self.assertTrue(any("Reflections" in e for e in result["errors"]))
+
     def test_nonexistent_file(self):
         result = manage.validate(self.tmp / "nope.md")
         self.assertFalse(result["valid"])
@@ -1318,6 +1335,32 @@ class TestAppendToSectionFile(unittest.TestCase):
             (user_root / "experiences.md").read_text(encoding="utf-8"),
         )
 
+    def test_append_user_curated_master_without_section_files_targets_section_file(self):
+        """Curated user MEMORY.md alone must not receive experience appends."""
+        user_root = self.tmp / "solo-user"
+        user_root.mkdir()
+        user_master = user_root / "MEMORY.md"
+        user_master.write_text(recall.USER_MEMORY_TEMPLATE, encoding="utf-8")
+        self.assertFalse(recall.has_section_files(user_root))
+
+        result = manage.append_entry(
+            user_master,
+            section="experiences",
+            text="First experience stored only in section file after layout bootstrap.",
+            scope_label="user",
+            date="2026-03-27",
+            context="testing",
+            entities=["layout-bootstrap"],
+        )
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["path"], str(user_root / "experiences.md"))
+        self.assertTrue(recall.has_section_files(user_root))
+        self.assertNotIn(
+            "First experience stored only in section file",
+            user_master.read_text(encoding="utf-8"),
+        )
+
 
 class TestPromoteWithSectionFiles(unittest.TestCase):
     def setUp(self):
@@ -1356,6 +1399,39 @@ class TestPromoteWithSectionFiles(unittest.TestCase):
         )
         self.assertIn(
             "Promotable experience entry.",
+            (self.project_root / "memory" / "experiences.md").read_text(encoding="utf-8"),
+        )
+
+    def test_promote_user_curated_master_only_bootstrap_sections_then_reads_sections(self):
+        """User has curated master + no section files; entries live in section files after ensure."""
+        user_root = self.tmp / "promote-solo-user"
+        user_root.mkdir(parents=True)
+        user_master = user_root / "MEMORY.md"
+        user_master.write_text(recall.USER_MEMORY_TEMPLATE, encoding="utf-8")
+        self.assertFalse(recall.has_section_files(user_root))
+
+        app = manage.append_entry(
+            user_master,
+            section="experiences",
+            text="Row to promote from bootstrapped user section files.",
+            scope_label="user",
+            date="2026-03-28",
+            context="testing",
+            entities=["promote-bootstrap"],
+        )
+        self.assertTrue(app["success"], app)
+
+        result = manage.promote(
+            user_master,
+            self.project_master,
+            "experiences",
+            0,
+            allow_project_promotion=True,
+        )
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["target"], str(self.project_root / "memory" / "experiences.md"))
+        self.assertIn(
+            "Row to promote from bootstrapped user section files.",
             (self.project_root / "memory" / "experiences.md").read_text(encoding="utf-8"),
         )
 
