@@ -52,13 +52,15 @@ markdown storage.
 
 ### Two-tier scoping
 
-| Scope | File | Default for |
-|-------|------|-------------|
-| **User** | `~/.agents/memory/MEMORY.md` | New memories (writes) |
-| **Project** | `<repo>/MEMORY.md` | Promotion target only |
+| Scope | Location | Purpose |
+|-------|----------|---------|
+| **User** | `~/.agents/memory/` | **All new memories go here by default.** |
+| **Project** | `<repo>/memory/` | Promotion target only — never written to unless explicitly asked or promoted. |
 
-New memories go to **user** scope unless explicitly directed to project.
-Recall searches **both** scopes by default.
+**Policy:** always write to **user** scope unless the user explicitly says
+"remember this in the project" or an entry is explicitly promoted with
+`action: promote`.  Recall searches **both** scopes by default so nothing
+is lost.
 
 ### Five memory networks
 

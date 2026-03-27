@@ -1230,7 +1230,7 @@ def main():
     parser.add_argument("--file", type=Path, default=None,
                         help="Explicit path to a memory file (overrides --scope)")
     parser.add_argument("--scope", choices=["user", "project"], default=None,
-                        help="Memory scope (default: project for validate/suggest, user for writes)")
+                        help="Memory scope (default: user for all writes; project only for validate/curate/migrate)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("validate", help="Validate MEMORY.md structure")

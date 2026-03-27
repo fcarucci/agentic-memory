@@ -45,11 +45,14 @@ from the environment config") over the token itself.
 
 ## Scope
 
-New memories go to **user** scope by default. Only use project scope when:
+**Always write to user scope** unless one of these conditions is met:
 
-- The memory is about shared project infrastructure, not personal workflow.
-- The user explicitly asks to store it in the project.
-- The memory is being promoted from user scope.
+- The user **explicitly** says "remember this in the project" (or equivalent).
+- The entry is being **promoted** from user scope via `action: promote`.
+
+Do **not** infer project scope from the topic being project-related.
+Personal observations about project infrastructure still belong in user
+memory and can be promoted later if the user decides to share them.
 
 To initialize user memory on first use:
 ```bash
