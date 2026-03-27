@@ -4,7 +4,7 @@
 
 Memories live in two files with identical structure:
 
-- **User**: `~/.agents/memory/MEMORY.md` (created on first use via `init-user`)
+- **User**: `~/.agents/memory/MEMORY.md` (created on first recall or write to user scope)
 - **Project**: `<repo>/MEMORY.md` (committed to version control)
 
 Required structure (same for both files):
@@ -94,12 +94,7 @@ Place causal tags after entity tags, before the narrative text:
 
 ### Querying causal chains
 
-Use keyword search to find causal relationships:
-
-```bash
-python3 skills/memory/scripts/memory-recall.py --keyword "caused-by: dev-server" --json
-python3 skills/memory/scripts/memory-recall.py --keyword "causes:" --json
-```
+Use keyword search via the **recall helper** to find causal relationships (e.g. keywords `caused-by: dev-server` or `causes:` with JSON output—see `ref/recall.md`).
 
 > **Design note:** In the Hindsight paper, causal links are edges in a
 > graph database traversed with spreading activation. Our flat-file
@@ -208,11 +203,7 @@ hyphenated names:
 - `api-gateway`, `redis`, `docker`, `ci-pipeline`
 - `port-5432`, `dashboard`, `auth-service`
 
-When in doubt about what to tag, run the entity extraction script:
-
-```bash
-python3 skills/memory/scripts/memory-manage.py extract-entities --text "your memory text"
-```
+When in doubt about what to tag, run **extract-entities** with `--text` set to your memory candidate (management helper—see `ref/retain.md`).
 
 ## Canonical context tags
 

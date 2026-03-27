@@ -8,14 +8,9 @@ Supports two memory tiers:
 Recall searches both by default. Results are tagged with their source
 scope so the caller can distinguish personal from shared memories.
 
-Usage:
-    python skills/memory/scripts/memory-recall.py --keyword "gateway"
-    python skills/memory/scripts/memory-recall.py --entity "dx-serve" --scope user
-    python skills/memory/scripts/memory-recall.py --scope project --stats
-    python skills/memory/scripts/memory-recall.py --since 2026-03-01 --until 2026-03-31
-    python skills/memory/scripts/memory-recall.py --section experiences --keyword "debug"
-    python skills/memory/scripts/memory-recall.py --entity "tailwind" --cross-section
-    python skills/memory/scripts/memory-recall.py --stats
+Agents and hosts follow ``skills/memory/SKILL.md`` and ``ref/recall.md`` for
+when and how to invoke this helper. Flag reference: run ``--help`` on this
+module (documentation does not embed copy-paste shell).
 """
 
 import argparse
@@ -74,7 +69,7 @@ CURATED_MASTER_TEMPLATE = """\
 
 <!-- Curated subset suitable for inclusion in AGENTS.md.
      Full memories are stored in per-section files.
-     Regenerate with: memory-manage.py curate -->
+     Regenerate via memory skill curation (SKILL.md / ref/retain.md) -->
 
 ## World Knowledge
 
@@ -94,6 +89,26 @@ USER_MEMORY_TEMPLATE = """\
 
 ## Entity Summaries
 """
+
+# Default ``memory-skill.config.json`` (must stay aligned with ``default_skill_config`` in memory-manage).
+DEFAULT_USER_SKILL_CONFIG: dict = {
+    "version": 1,
+    "default_preset": "balanced",
+    "presets": {
+        "strong": "reasoning",
+        "balanced": "default",
+        "fast": "fast",
+    },
+    "actions": {
+        "remember": "fast",
+        "reflect": "strong",
+        "maintain": "balanced",
+        "promote": "balanced",
+    },
+    "overrides": {
+        "remember_when_auto_reflect": "strong",
+    },
+}
 
 # Legacy single-file template (used for backward-compat validation only).
 LEGACY_SINGLE_FILE_TEMPLATE = """\
@@ -261,6 +276,16 @@ def load_memory(master_path: Path, section_dir: Path) -> "MemoryBank":
     If the master is a legacy all-in-one file with entries and no
     section files exist yet, auto-migrates before loading.
     """
+    try:
+        user_master = resolve_user_memory_path().resolve()
+        is_user_scope = master_path.resolve() == user_master
+    except OSError:
+        is_user_scope = master_path == resolve_user_memory_path()
+    if is_user_scope:
+        ensure_user_scope_initialized()
+        master_path = resolve_user_memory_path()
+        section_dir = resolve_section_dir("user")
+
     if has_section_files(section_dir):
         return load_memory_from_sections(section_dir)
     if _is_legacy_single_file(master_path):
@@ -311,6 +336,23 @@ def ensure_user_memory() -> Path:
         path.write_text(USER_MEMORY_TEMPLATE, encoding="utf-8")
     ensure_section_files(path.parent)
     return path
+
+
+def ensure_user_scope_initialized() -> Path:
+    """Ensure ``~/.agents/memory`` has master, section files, and default skill config.
+
+    Called automatically when loading or writing user scope so operators never
+    need a separate ``init-user`` step.
+    """
+    path = ensure_user_memory()
+    cfg_path = resolve_user_skill_config_path()
+    if not cfg_path.exists():
+        cfg_path.write_text(
+            json.dumps(DEFAULT_USER_SKILL_CONFIG, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return path
+
 
 SECTION_NAMES = ("experiences", "world_knowledge", "beliefs", "reflections", "entity_summaries")
 

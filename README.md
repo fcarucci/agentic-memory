@@ -1,6 +1,6 @@
 # Agent Memory (skill)
 
-Persistent, **structured agent memory** stored as Markdown—not a vector database. The skill coordinates **retain → recall → reflect** workflows, with Python helpers for validation, deduplication, and JSON recall for tooling.
+Persistent, **structured agent memory** stored as Markdown—not a vector database. The skill coordinates **retain → recall → reflect** workflows; validation, deduplication, and structured recall are implemented by helpers shipped with the skill (see **`ref/scripts.md`**).
 
 ## What this skill does
 
@@ -8,8 +8,8 @@ Persistent, **structured agent memory** stored as Markdown—not a vector databa
 - **Five memory types**, each in its own file: **experiences**, **world knowledge**, **beliefs**, **reflections**, and **entity summaries**.
 - **Curated master `MEMORY.md`** at scope root—a compact subset of world knowledge, beliefs, and entity summaries suitable for direct inclusion in `AGENTS.md`.
 - **Operations:** remember (guarded write), show/recall (read & search), reflect, maintain, promote (user → project), forget, **migrate** (single → multi-file), **curate** (regenerate master from section files).
-- **Scripts:** `memory-recall.py` (digest and structured query) and `memory-manage.py` (append, validate, duplicates, confidence updates, promotion, migration, curation, etc.). No extra pip packages.
-- **Backward compatible:** if only a single `MEMORY.md` exists (legacy layout), the scripts fall back to reading/writing it.
+- **Helpers:** recall and management capabilities live under **`skills/memory/scripts/`** (stdlib only, no extra packages). See **`ref/scripts.md`**.
+- **Backward compatible:** if only a single `MEMORY.md` exists (legacy layout), loading falls back to that file until section layout is used.
 
 Authoritative behavior and trigger phrases live in **`SKILL.md`**. This README is the on-ramp for humans and for wiring the skill into other products.
 
@@ -51,19 +51,21 @@ It is **not** a faithful reproduction of every detail in the paper; it is a **pr
 
 ### Path discovery
 
-The skill **does not assume** a fixed install path. Scripts resolve the **project** `MEMORY.md` by:
+The skill **does not assume** a fixed install path. Path resolution for the **project** `MEMORY.md` walks:
 
 1. Walking **upward from cwd** for the first `MEMORY.md`.
-2. Walking **upward from the script's directory**.
+2. Walking **upward from the helper’s directory** in `scripts/`.
 3. Falling back to **`./MEMORY.md`** (natural default when cwd is the project root).
 
 Section files are derived from the master path: **`<master-parent>/memory/`** for project scope, **`<master-parent>/`** for user scope.
 
-Writes go to the **per-section files**. The curated master is regenerated automatically at the end of every **reflect** and **retain** (auto-reflect) operation, or on demand with `memory-manage.py curate`.
+Writes go to the **per-section files**. The curated master is regenerated automatically at the end of every **reflect** and **retain** (auto-reflect) operation, or on demand via the **curation** step in **`SKILL.md`** / **`ref/retain.md`**.
 
 ## Install
 
-Requirements: **Python 3** on `PATH` (`python3`). Scripts are plain stdlib.
+Requirements: **Python 3** available to the host that runs the skill’s stdlib helpers.
+
+**Operators** only need to place this skill where the product loads skills from. **Routine memory use** (recall, remember, reflect, etc.) happens when the **agent** follows **`SKILL.md`**—you do not invoke helpers yourself. See [Using memory](#using-memory). **Configuration** and **Tests** below are for **integrators and maintainers** only. **User** memory under `~/.agents/memory/` is created automatically the first time recall or a write touches user scope (no manual initialization).
 
 ### Cursor
 
@@ -82,84 +84,47 @@ Requirements: **Python 3** on `PATH` (`python3`). Scripts are plain stdlib.
 
 2. Ensure **Agent Skills** loads project skills from `.cursor/skills/`.
 
-3. Agents can run from the **repository root**:
-
-   `python3 skills/memory/scripts/memory-recall.py --show`
+3. Point your **agent** instructions at **`SKILL.md`** (and optionally the [recommended `AGENTS.md` snippet](#recommended-agent-wiring-agentsmd)) so the agent performs recall and other memory actions—you do not invoke helpers yourself for day-to-day work.
 
 ### OpenAI Codex (CLI / IDE)
 
-```bash
-git clone git@github.com:fcarucci/agent-memory.git "$CODEX_HOME/skills/memory"
-```
+1. Clone this repository so the skill root (where `SKILL.md` lives) is at **`$CODEX_HOME/skills/memory`**:
 
-Run memory scripts with **cwd** under the project tree so upward discovery finds the correct `MEMORY.md`.
+   ```bash
+   git clone git@github.com:fcarucci/agent-memory.git "$CODEX_HOME/skills/memory"
+   ```
+
+2. With **`CODEX_HOME`** set, Codex loads skills from **`$CODEX_HOME/skills`** by default.
+
+3. Use memory by having the **agent** follow **`SKILL.md`**. The agent runs the skill’s helpers in the right context for your project; you do not invoke them manually for normal work.
 
 ### Claude (Claude Code / team setups)
 
-Copy or symlink this repo so you have `.claude/skills/memory/SKILL.md`, etc. Use the same Python commands from the repo root.
+1. Copy or symlink this repository so the skill root lives at **`.claude/skills/memory/`** (i.e. `.claude/skills/memory/SKILL.md`, `scripts/`, etc.).
 
-### Initialize user memory (once per machine)
+2. Ensure Claude Code (or your team harness) loads skills from **`.claude/skills/`**.
 
-```bash
-python3 skills/memory/scripts/memory-manage.py init-user
-```
+3. Use memory **only through the skill:** point **agent** rules at **`SKILL.md`** (and the [recommended `AGENTS.md` snippet](#recommended-agent-wiring-agentsmd) if you use that pattern). The **agent** follows the skill when **`SKILL.md`** says to—same model as Cursor and Codex. Do not invoke the skill’s helpers yourself for routine memory work.
 
-This creates `~/.agents/memory/MEMORY.md` (curated master), all five section files, and—if absent—`memory-skill.config.json` with default subagent model presets (edit to match your host).
+## Using memory
 
-### Migrate from single-file layout
+**End users and operators** do not run the memory Python scripts. You interact **only through your coding agent**, which follows **`SKILL.md`**. Natural language is enough:
 
-If you have an existing single-file `MEMORY.md` with all sections, split it into per-section files:
+- **Orient at session start:** rely on your product’s rules (or ask the agent) to load memory context the way **`SKILL.md`** describes under *Automatic memory retrieval*—not by running recall commands yourself.
+- **Before deep work on a topic:** ask what it remembers about that topic (or equivalent); the skill’s recall workflow applies.
+- **Save something for later:** use the trigger phrases in **`SKILL.md`** (e.g. “remember this”, “don’t forget …”); the agent runs the guarded retain path and subagent rules defined there.
+- **Project vs user scope, promotion, reflection, maintenance:** all dispatch tables and procedures live in **`SKILL.md`** and **`ref/`**—still no direct script use on your side.
 
-```bash
-python3 skills/memory/scripts/memory-manage.py migrate --scope project
-python3 skills/memory/scripts/memory-manage.py migrate --scope user
-```
+The helpers under **`skills/memory/scripts/`** exist so the **agent** (and integrators) can implement those workflows. What they expose is summarized in **`ref/scripts.md`**; that file does not list copy-paste shell—follow **`SKILL.md`** for procedure.
 
-This backs up the original as `MEMORY.md.bak`, creates the section files, and replaces the master with the curated template.
+### Recommended agent wiring (`AGENTS.md`)
 
-## How to use
-
-1. **Session start:** load context without reading raw files:
-
-   `python3 skills/memory/scripts/memory-recall.py --show`
-
-2. **Before a task:** targeted recall:
-
-   `python3 skills/memory/scripts/memory-recall.py --entity "<topic>" --cross-section --json`
-
-3. **Storing memories:** follow **`SKILL.md`**—user phrases like "remember this" require spawning a subagent with `action: remember`.
-
-4. **Regenerate curated master:**
-
-   `python3 skills/memory/scripts/memory-manage.py curate --scope project`
-
-5. **Validate section files:**
-
-   `python3 skills/memory/scripts/memory-manage.py validate-sections --scope user`
-
-Full CLI examples: **`ref/scripts.md`**.
-
-### Minimal `AGENTS.md` (or global agent instructions)
+Paste something minimal like this into repo or global agent instructions so behavior stays skill-driven:
 
 ```markdown
 ## Agent memory
 
-**Skill:** read and follow [`skills/memory/SKILL.md`](skills/memory/SKILL.md).
-
-**Session start:** run structured recall (not raw file reads):
-
-`python3 skills/memory/scripts/memory-recall.py --show`
-
-**Before starting work on a task:** run targeted recall, e.g.:
-
-`python3 skills/memory/scripts/memory-recall.py --entity "<task-topic>" --cross-section --json`
-
-**Storing memories:** follow `SKILL.md` and spawn a subagent for `action: remember`—do not edit memory files directly for routine writes.
-
-**Curated master:** `MEMORY.md` at the repo root is a curated subset of
-world knowledge, beliefs, and entity summaries. Regenerate with
-`memory-manage.py curate --scope project`. Full memories live in
-per-section files under `memory/`.
+Read and follow [`skills/memory/SKILL.md`](skills/memory/SKILL.md) for every memory operation: session and pre-task recall, remember / reflect / maintain / promote, subagent spawns, and when supporting helpers may run. Do not edit `MEMORY.md` or per-section files directly for routine writes. Do not tell end users to invoke anything under `skills/memory/scripts/`; they use memory only through this skill.
 ```
 
 Adjust paths if your install uses `.cursor/skills/memory/` or another prefix.
@@ -175,7 +140,7 @@ Adjust paths if your install uses `.cursor/skills/memory/` or another prefix.
 | User `MEMORY.md` | `~/.agents/memory/MEMORY.md`. |
 | User section files | `~/.agents/memory/*.md` (alongside master). |
 
-Use **`--file <path>`** on `memory-recall.py` or `memory-manage.py` to override scope resolution for a single invocation.
+Hosts may pass an explicit memory file path when the skill’s workflows allow it (see **`ref/scripts.md`** / helper docs); not an end-user step.
 
 ### Subagent model presets (`memory-skill.config.json`)
 
@@ -183,23 +148,20 @@ Optional JSON next to user `MEMORY.md`: **`~/.agents/memory/memory-skill.config.
 
 - **Spec:** [`ref/config.md`](ref/config.md)
 - **Example:** [`ref/memory-skill.config.example.json`](ref/memory-skill.config.example.json)
-- **Validate:** `python3 skills/memory/scripts/memory-manage.py validate-config`
-- **Resolved ids for spawns:** `python3 skills/memory/scripts/memory-manage.py config-hints`
-- **Override path / tests:** env `MEMORY_SKILL_CONFIG_PATH` or `memory-manage.py --skill-config <path> …`
+- **Validate / resolved model hints for spawns:** see [`ref/config.md`](ref/config.md) and [`ref/scripts.md`](ref/scripts.md) (host / maintainer—not operator-facing).
+- **Override path:** env `MEMORY_SKILL_CONFIG_PATH` or per-run skill-config override as described in [`ref/config.md`](ref/config.md).
 
-### Scopes (CLI)
+### Scopes
 
-- **`--scope user`**, **`--scope project`**, **`--scope both`** (default for queries): control which scope(s) are read or written.
+- **User**, **project**, or **both** (default for queries): control which tier is read or written; exact flags are documented in **`ref/recall.md`** and management workflows in **`ref/retain.md`**.
 
-### Behavior constants (code)
+### Behavior constants (implementation)
 
-Duplicate detection threshold, context tags, entity heuristics, and sensitive-value screening live in **`memory-manage.py`** (e.g. `DUPLICATE_THRESHOLD`, `CANONICAL_CONTEXT_TAGS`).
+Duplicate detection threshold, context tags, entity heuristics, and sensitive-value screening live in the **management helper** sources under `skills/memory/scripts/` (e.g. `DUPLICATE_THRESHOLD`, `CANONICAL_CONTEXT_TAGS`).
 
 ### Tests
 
-```bash
-python3 skills/memory/scripts/memory-recall.test.py
-```
+**Maintainers** run the bundled tests under `skills/memory/scripts/` after changing helpers, using the repo’s expected Python environment.
 
 ---
 

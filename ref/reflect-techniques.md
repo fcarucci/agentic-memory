@@ -30,11 +30,7 @@ For each belief being reviewed:
    Probe: "Are there experiences where the combined dev command
    succeeded and the standalone server failed, or vice versa?"
 
-2. **Search for evidence.**
-   ```bash
-   python3 skills/memory/scripts/memory-recall.py --entity "<belief-entity>" --section experiences --json
-   python3 skills/memory/scripts/memory-recall.py --keyword "<key term from probe>" --json
-   ```
+2. **Search for evidence** with the **recall helper**: entity `<belief-entity>` limited to section `experiences`, plus a keyword pass for the probe term—JSON output (`ref/recall.md`).
 
 3. **Score the probe result.**
 
@@ -82,10 +78,7 @@ indirect evidence.
 2. Assess the strongest piece of evidence driving the update.
 3. Multiply: `effective_delta = base_delta × multiplier`.
 4. Round to 2 decimal places.
-5. Pass the effective delta to:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py update-confidence --section beliefs --index N --delta <effective_delta>
-   ```
+5. Pass the effective delta via **update-confidence** (`--section beliefs`, `--index`, `--delta`).
 
 ### Examples
 
@@ -112,10 +105,7 @@ For each belief with confidence ≥ 0.6:
    beliefs, entity summaries, or world knowledge entries would need
    revision?"
 
-2. **Search for dependents.**
-   ```bash
-   python3 skills/memory/scripts/memory-recall.py --entity "<belief-entity>" --cross-section --json
-   ```
+2. **Search for dependents** with the **recall helper**: entity `<belief-entity>`, cross-section, JSON (`ref/recall.md`).
    Review the results for entries that assume or build on this belief.
 
 3. **Classify the belief's dependency impact.**
@@ -157,11 +147,8 @@ judgments. Contradictory beliefs undermine epistemic clarity.
 
 ### Procedure
 
-1. **Run the conflict detector.**
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py check-conflicts
-   ```
-   The script compares all belief pairs and flags those that share
+1. **Run the conflict detector:** **check-conflicts**.
+   The helper compares all belief pairs and flags those that share
    entities but have opposing sentiment signals.
 
 2. **Review each conflict.** For each flagged pair, the output includes:
@@ -184,7 +171,7 @@ judgments. Contradictory beliefs undermine epistemic clarity.
 ### When to skip
 
 - If there are fewer than 2 beliefs, no conflicts are possible.
-- During auto-reflect: run conflict detection (it's script-driven and
+- During auto-reflect: run conflict detection (it's helper-driven and
   fast) but defer resolution to the next explicit reflect if conflicts
   are ambiguous.
 
@@ -210,10 +197,7 @@ Generate a new reflection when you notice any of:
 ### Procedure
 
 1. **Identify candidates.** After reviewing experiences and beliefs,
-   look for clusters that share entities or themes:
-   ```bash
-   python3 skills/memory/scripts/memory-recall.py --entity "<shared-entity>" --cross-section --json
-   ```
+   look for clusters that share entities or themes using the **recall helper** (entity `<shared-entity>`, cross-section, JSON—`ref/recall.md`).
 
 2. **Draft the reflection.** Write a synthesis that:
    - Connects 2+ source memories into a pattern
@@ -221,10 +205,7 @@ Generate a new reflection when you notice any of:
    - Uses entity tags spanning all relevant entities
    - Is useful for future decision-making, not just a summary
 
-3. **Check for duplicate reflections.** Before adding:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py check-duplicate --section reflections --candidate "the reflection text"
-   ```
+3. **Check for duplicate reflections** before adding: **check-duplicate** on section `reflections` with the candidate reflection text.
 
 4. **Write the reflection** to the `## Reflections` section using the
    standard guarded-write path.

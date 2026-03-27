@@ -5,25 +5,13 @@ Supports two memory tiers:
   - User memory:    ~/.agents/memory/MEMORY.md by default (see memory-recall.resolve_user_memory_path)
   - Project memory: resolved at runtime (see memory-recall.resolve_project_memory_path)
 
-Usage:
-    python skills/memory/scripts/memory-manage.py validate
-    python skills/memory/scripts/memory-manage.py validate --scope user
-    python skills/memory/scripts/memory-manage.py check-duplicate --section experiences --candidate "text"
-    python skills/memory/scripts/memory-manage.py check-duplicate --section experiences --candidate "text" --cross-scope
-    python skills/memory/scripts/memory-manage.py screen-text --text "some text"
-    python skills/memory/scripts/memory-manage.py append-entry --section experiences --text "text" --date 2026-03-27
-    python skills/memory/scripts/memory-manage.py update-confidence --section beliefs --index 0 --delta 0.1
-    python skills/memory/scripts/memory-manage.py update-confidence --section beliefs --index 0 --delta 0.1 --scope user
-    python skills/memory/scripts/memory-manage.py extract-entities --text "some text"
-    python skills/memory/scripts/memory-manage.py prune-beliefs --threshold 0.2
-    python skills/memory/scripts/memory-manage.py suggest-summaries
-    python skills/memory/scripts/memory-manage.py init-user
-    python skills/memory/scripts/memory-manage.py promote --section experiences --index 0 --allow-project-promotion
-    python skills/memory/scripts/memory-manage.py validate-config
-    python skills/memory/scripts/memory-manage.py config-hints
+Agents and hosts follow ``skills/memory/SKILL.md`` and the ``ref/*.md``
+operation guides for when and how to invoke this helper. Subcommands and
+flags: run ``--help`` on this module (documentation does not embed copy-paste shell).
 """
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -42,12 +30,15 @@ recall_mod = import_module("memory-recall")
 def resolve_path(scope: str) -> Path:
     """Return the curated master MEMORY.md for a scope (legacy compat)."""
     if scope == "user":
+        recall_mod.ensure_user_scope_initialized()
         return recall_mod.resolve_user_memory_path()
     return recall_mod.resolve_project_memory_path()
 
 
 def resolve_section_path(scope: str, section: str) -> Path:
     """Return the section file path, creating it if needed."""
+    if scope == "user":
+        recall_mod.ensure_user_scope_initialized()
     section_dir = recall_mod.resolve_section_dir(scope)
     return recall_mod.ensure_section_file(section_dir, section)
 
@@ -64,24 +55,7 @@ OPTIONAL_OVERRIDE_KEYS = frozenset({"remember_when_auto_reflect"})
 
 def default_skill_config() -> dict[str, Any]:
     """Built-in defaults when no config file exists (see ``ref/config.md``)."""
-    return {
-        "version": 1,
-        "default_preset": "balanced",
-        "presets": {
-            "strong": "reasoning",
-            "balanced": "default",
-            "fast": "fast",
-        },
-        "actions": {
-            "remember": "fast",
-            "reflect": "strong",
-            "maintain": "balanced",
-            "promote": "balanced",
-        },
-        "overrides": {
-            "remember_when_auto_reflect": "strong",
-        },
-    }
+    return copy.deepcopy(recall_mod.DEFAULT_USER_SKILL_CONFIG)
 
 
 def merge_skill_config(base: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
@@ -917,18 +891,12 @@ def suggest_summaries(path: Path) -> dict:
 
 
 def init_user() -> dict:
-    """Create the user memory directory, curated master, section files, and optional skill config."""
-    path = recall_mod.ensure_user_memory()
+    """Idempotently ensure user memory layout (same as automatic first-use init)."""
+    cfg_path = recall_mod.resolve_user_skill_config_path()
+    had_config = cfg_path.exists()
+    path = recall_mod.ensure_user_scope_initialized()
     section_dir = recall_mod.resolve_section_dir("user")
     created = recall_mod.ensure_section_files(section_dir)
-    cfg_path = recall_mod.resolve_user_skill_config_path()
-    skill_config_seeded = False
-    if not cfg_path.exists():
-        cfg_path.write_text(
-            json.dumps(default_skill_config(), indent=2) + "\n",
-            encoding="utf-8",
-        )
-        skill_config_seeded = True
     return {
         "success": True,
         "path": str(path),
@@ -936,7 +904,7 @@ def init_user() -> dict:
         "section_files": [str(p) for p in created],
         "created": path.exists(),
         "skill_config_path": str(cfg_path),
-        "skill_config_seeded": skill_config_seeded,
+        "skill_config_seeded": cfg_path.exists() and not had_config,
     }
 
 
@@ -1021,7 +989,7 @@ def curate(scope: str, *, max_world: int = 10, max_beliefs: int = 10,
     lines.append("")
     lines.append("<!-- Curated subset suitable for inclusion in AGENTS.md.")
     lines.append("     Full memories are stored in per-section files.")
-    lines.append("     Regenerate with: memory-manage.py curate -->")
+    lines.append("     Regenerate via memory skill curation (SKILL.md / ref/retain.md) -->")
     lines.append("")
 
     wk = sorted(bank.world_knowledge,
@@ -1068,7 +1036,7 @@ def _ensure_memory_file(path: Path, scope_label: str) -> Path:
     if path.exists():
         return path
     if scope_label == "user":
-        return recall_mod.ensure_user_memory()
+        return recall_mod.ensure_user_scope_initialized()
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(recall_mod.CURATED_MASTER_TEMPLATE, encoding="utf-8")
@@ -1077,6 +1045,8 @@ def _ensure_memory_file(path: Path, scope_label: str) -> Path:
 
 def _ensure_section_file(scope_label: str, section: str) -> Path:
     """Ensure the section file for *section* exists and return its path."""
+    if scope_label == "user":
+        recall_mod.ensure_user_scope_initialized()
     section_dir = recall_mod.resolve_section_dir(scope_label)
     return recall_mod.ensure_section_file(section_dir, section)
 
@@ -1551,6 +1521,8 @@ def _resolve_section_file_for_write(scope: str, section: str,
     """
     if file_override:
         return file_override
+    if scope == "user":
+        recall_mod.ensure_user_scope_initialized()
     section_dir = recall_mod.resolve_section_dir(scope)
     if recall_mod.has_section_files(section_dir):
         return recall_mod.ensure_section_file(section_dir, section)
@@ -1562,6 +1534,8 @@ def _resolve_section_file_for_read(scope: str, section: str,
     """Return the file to read *section* entries from."""
     if file_override:
         return file_override
+    if scope == "user":
+        recall_mod.ensure_user_scope_initialized()
     section_dir = recall_mod.resolve_section_dir(scope)
     sf = recall_mod.section_file_path(section_dir, section)
     if sf.exists():
@@ -1614,7 +1588,10 @@ def main():
 
     sub.add_parser("suggest-summaries", help="Suggest entities needing summaries")
     sub.add_parser("check-conflicts", help="Detect contradictions between belief pairs")
-    sub.add_parser("init-user", help="Create user memory directory, master, and section files")
+    sub.add_parser(
+        "init-user",
+        help="Idempotent: ensure user memory layout (same as automatic first-use init)",
+    )
 
     find_parser = sub.add_parser("find-matches", help="Fuzzy-search memories for forget operation")
     find_parser.add_argument("--query", required=True, help="Fuzzy description of the memory to find")

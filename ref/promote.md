@@ -9,15 +9,16 @@ in user memory (not deleted automatically).
 - The user explicitly asks to share a memory with the team/repo.
 - A belief has been reinforced enough to become shared knowledge.
 
-## Commands
+## Management helper
 
-```bash
-python3 skills/memory/scripts/memory-manage.py promote --section experiences --index 0 --allow-project-promotion
-python3 skills/memory/scripts/memory-manage.py promote --section world_knowledge --index 2 --allow-project-promotion
-python3 skills/memory/scripts/memory-manage.py promote --section beliefs --index 0 --allow-project-promotion
-```
+Run **promote** with:
 
-The promote command automatically:
+- `--section` — `experiences`, `world_knowledge`, or `beliefs`
+- `--index` — index in user memory
+- `--allow-project-promotion` — required explicit approval flag
+
+The promote operation automatically:
+
 - Requires explicit `--allow-project-promotion` approval.
 - Checks for duplicates in project memory before promoting.
 - Refuses preference-scoped experiences and sensitive content.

@@ -25,7 +25,7 @@ request to an action, then follow only that action's instructions.
 
 **Critical rule:** If the user asks to **store** something (remember,
 don't forget, note that, keep in mind), you MUST spawn a subagent.
-Do not run `--show`, do not load the digest, do not do anything else
+Do not load a memory digest first, do not run recall, do not do anything else
 first. Spawn the subagent immediately with the content to remember.
 
 ### How to spawn a remember subagent
@@ -57,6 +57,8 @@ markdown storage.
 | **User** | `~/.agents/memory/` | **All new memories go here by default.** |
 | **Project** | `<repo>/memory/` | Promotion target only — never written to unless explicitly asked or promoted. |
 
+The **user** directory, curated master, section files, and default `memory-skill.config.json` are **created automatically** on first recall or write to user scope. No separate initialization step.
+
 **Policy:** always write to **user** scope unless the user explicitly says
 "remember this in the project" or an entry is explicitly promoted with
 `action: promote`.  Recall searches **both** scopes by default so nothing
@@ -76,36 +78,23 @@ is lost.
 reflect pass when beliefs are stale, low-confidence, or unsupported
 by recent experiences. See `ref/retain.md` for trigger conditions.
 
-Script implementation details: `ref/scripts.md`
+Helper layout (no shell recipes): `ref/scripts.md`
 
 ## Automatic memory retrieval
 
 ### Session-start loading
 
-At the start of every session, load the memory digest into context:
-
-```bash
-python3 skills/memory/scripts/memory-recall.py --show
-```
-
-This replaces reading raw `MEMORY.md`. The digest includes world
-knowledge, beliefs, reflections, entity summaries, and recent
-experiences from both user and project scopes.
+At the start of every session, load the memory digest into context using the **recall helper** per **`ref/recall.md`** (*Show / digest*): both scopes, structured digest—not raw `MEMORY.md`. The digest includes world knowledge, beliefs, reflections, entity summaries, and recent experiences from user and project scopes where present.
 
 ### Pre-task recall
 
-Before starting any task, run a targeted recall against the task topic:
+Before starting any task, run a targeted recall against the task topic using the **recall helper** per **`ref/recall.md`** (*Recall*): entity and/or keyword search, cross-section as appropriate, JSON output when useful.
 
-```bash
-python3 skills/memory/scripts/memory-recall.py --entity "<topic>" --cross-section --json
-python3 skills/memory/scripts/memory-recall.py --keyword "<keyword>" --json
-```
-
-| User says | Recall command |
-|-----------|---------------|
-| "Fix the integration tests" | `--entity "integration-tests" --cross-section` |
-| "Work on the API gateway" | `--entity "api-gateway" --cross-section` |
-| "The build is failing" | `--keyword "build" --cross-section` |
+| User says | Recall shape (see `ref/recall.md`) |
+|-----------|-----------------------------------|
+| "Fix the integration tests" | entity `integration-tests`, cross-section |
+| "Work on the API gateway" | entity `api-gateway`, cross-section |
+| "The build is failing" | keyword `build`, cross-section |
 
 If no memories match, proceed normally.
 
@@ -148,23 +137,17 @@ all", or task done with no follow-up):
 | `section` | no | Limit to one section |
 | `scope` | no | `user` (default writes), `project`, or `both` (default reads) |
 | `index` | if promote | Index in user memory to promote |
-| `model_preset` | no | Optional opaque model id or preset label for **this** subagent; the host decides how it maps to a real model. If omitted, the orchestrator should use `memory-manage.py config-hints` (see below). |
+| `model_preset` | no | Optional opaque model id or preset label for **this** subagent; the host decides how it maps to a real model. If omitted, resolve presets using the **config-hints** operation described in **`ref/config.md`**. |
 
 ### Subagent model selection (orchestrator)
 
-Memory Python scripts do not call language models. To use **different models** per subagent action (`remember`, `reflect`, `maintain`, `promote`), configure:
+Memory helpers do not call language models. To use **different models** per subagent action (`remember`, `reflect`, `maintain`, `promote`), configure:
 
 `~/.agents/memory/memory-skill.config.json`
 
-Full schema, defaults, and rationale: **`ref/config.md`**. Example: **`ref/memory-skill.config.example.json`**.
+Full schema, defaults, rationale, and how to obtain resolved model ids: **`ref/config.md`**. Example: **`ref/memory-skill.config.example.json`**.
 
-Before spawning a memory subagent, the host may run:
-
-```bash
-python3 skills/memory/scripts/memory-manage.py config-hints
-```
-
-and pass the resolved `model_id` for the matching action (or honor `model_preset` on the subagent payload when the user overrides). Use **`overrides.remember_when_auto_reflect`** when splitting a cheap retain pass from a stronger auto-reflect pass.
+Before spawning a memory subagent, the host resolves `model_id` for the matching action per **`ref/config.md`** (or honors `model_preset` on the subagent payload when the user overrides). Use **`overrides.remember_when_auto_reflect`** when splitting a cheap retain pass from a stronger auto-reflect pass.
 
 ## Invocation examples
 
@@ -191,19 +174,11 @@ scope: project
 
 ### Show (run directly)
 
-```bash
-python3 skills/memory/scripts/memory-recall.py --show
-python3 skills/memory/scripts/memory-recall.py --show --scope user
-python3 skills/memory/scripts/memory-recall.py --show --last 20
-python3 skills/memory/scripts/memory-recall.py --show --days 7
-```
+Run digest recall per **`ref/recall.md`**: default both scopes; optional user-only or project-only; tune recent experience window with `--last` or `--days`.
 
 ### Recall (run directly)
 
-```bash
-python3 skills/memory/scripts/memory-recall.py --entity "api-gateway" --cross-section --json
-python3 skills/memory/scripts/memory-recall.py --keyword "database" --json
-```
+Run structured recall per **`ref/recall.md`**: e.g. entity `api-gateway` with cross-section JSON, or keyword `database` with JSON—see that file for the full flag matrix.
 
 ### Reflect (spawn subagent)
 

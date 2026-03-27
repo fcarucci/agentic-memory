@@ -4,7 +4,7 @@ Optional JSON file in the **user memory directory** (next to `MEMORY.md`):
 
 `~/.agents/memory/memory-skill.config.json`
 
-Python memory scripts stay **model-agnostic**. This file is for **orchestrators** (IDE agent, `AGENTS.md`, custom wrappers) so each **memory subagent** spawn can use an appropriate model: stronger reasoning where it matters, cheaper where scripts already do most of the work.
+The memory helpers stay **model-agnostic**. This file is for **orchestrators** (IDE agent, `AGENTS.md`, custom wrappers) so each **memory subagent** spawn can use an appropriate model: stronger reasoning where it matters, cheaper where deterministic helpers already do most of the work.
 
 Keep **behavioral tuning** (skepticism, literalism, etc.) in `profile.json`. This file only names **model presets** for subagent routing.
 
@@ -42,29 +42,24 @@ If the file is missing, built-in defaults match the recommended tiering:
 
 Default preset **names** map to placeholder model ids (`reasoning`, `default`, `fast`) until you copy the example and set real ids.
 
-## CLI helpers (stdlib JSON only)
+## Config operations (management helper)
 
-```bash
-# Validate syntax and known keys (file optional — validates defaults if missing)
-python3 skills/memory/scripts/memory-manage.py validate-config
+The **management helper** exposes JSON-only operations for this file:
 
-# Resolved models for each subagent action (for spawn instructions)
-python3 skills/memory/scripts/memory-manage.py config-hints
-```
+| Operation | Purpose |
+|-----------|---------|
+| **validate-config** | Check syntax and known keys (uses defaults if the file is missing). |
+| **config-hints** | Emit resolved model ids per subagent action for spawn instructions. |
 
-Override path for tests or nonstandard layouts:
-
-```bash
-python3 skills/memory/scripts/memory-manage.py --skill-config /path/to/memory-skill.config.json validate-config
-```
+For nonstandard layouts or tests, the host may supply an alternate config path via the **`MEMORY_SKILL_CONFIG_PATH`** environment variable or the helper’s per-run skill-config override (see helper sources under `skills/memory/scripts/`).
 
 ## Subagent prompt field
 
-Orchestrators may pass through an optional `model_preset` or concrete model id on the subagent payload; see **`SKILL.md`** — behavior is defined by the host, not by `memory-manage.py`.
+Orchestrators may pass through an optional `model_preset` or concrete model id on the subagent payload; see **`SKILL.md`** — behavior is defined by the host, not by the helpers.
 
 ## Bootstrap
 
-`memory-manage.py init-user` writes `memory-skill.config.json` with built-in defaults when that file is missing (same directory as user `MEMORY.md`).
+On first use of **user** scope, recall and management operations create `~/.agents/memory/` (master, section files, and—if missing—`memory-skill.config.json` with built-in defaults). The **init-user** operation is an optional idempotent no-op after that.
 
 ## Copying the example
 

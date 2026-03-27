@@ -5,14 +5,13 @@
 
 ## Scope and safety
 
-This skill manages **only** `MEMORY.md`.
+This skill manages **only** `MEMORY.md` and the per-section layout beside it.
 
 Non-negotiable:
 
 1. **Read before write.** Always read `MEMORY.md` in full before planning
    changes.
-2. **Use the guarded writer.** Prefer `python3 skills/memory/scripts/memory-manage.py append-entry`
-   over manual edits so secret screening, duplicate checks, entity
+2. **Use the guarded writer.** Use the **append-entry** operation of the **management helper** (`skills/memory/scripts/`) instead of manual edits so secret screening, duplicate checks, entity
    canonicalization, and optimistic concurrency checks are enforced.
 3. **Single final write.** Do not write partial state. Compute the final
    target content first, then write once.
@@ -54,62 +53,31 @@ Do **not** infer project scope from the topic being project-related.
 Personal observations about project infrastructure still belong in user
 memory and can be promoted later if the user decides to share them.
 
-To initialize user memory on first use:
-```bash
-python3 skills/memory/scripts/memory-manage.py init-user
-```
+User memory under `~/.agents/memory/` is **created automatically** the first time recall or a guarded write touches user scope. You do not run a separate init step for normal operation.
 
 ## Workflow
 
-1. Ensure user memory exists (`init-user` if needed).
-2. Read and parse the target `MEMORY.md` (user scope by default).
-3. Validate structure (run `python3 skills/memory/scripts/memory-manage.py validate --scope user`).
-4. Screen the incoming `content` before any write:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py screen-text --text "the memory text"
-   ```
-   If the result is unsafe, store only a sanitized lesson or stop.
-5. **Classify** the memory into the correct network:
+1. Read and parse the target `MEMORY.md` (user scope by default; auto-created if missing).
+2. Validate structure: **validate** operation, `--scope user`.
+3. Screen the incoming `content` before any write: **screen-text** with `--text` set to the candidate memory text. If the result is unsafe, store only a sanitized lesson or stop.
+4. **Classify** the memory into the correct network:
    - Is it something that happened to/around the agent? → **Experience**
    - Is it an objective, verifiable fact about the project? → **World Knowledge**
    - Is it the agent's subjective judgment or preference? → **Belief**
-6. **Extract entities** using the script:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py extract-entities --text "the memory text"
-   ```
-   Review the candidates and finalize the entity set.
-7. **Check for duplicates** across both scopes:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py check-duplicate --section experiences --candidate "the memory text" --cross-scope
-   ```
-   If a clear duplicate exists in either scope, do not add a new entry.
-8. Write the final entry via the guarded command:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py append-entry \
-     --section experiences \
-     --scope user \
-     --date 2026-03-27 \
-     --context testing \
-     --entities "integration-tests,port-5432" \
-     --text "the memory text"
-   ```
-   For world knowledge, also pass `--confidence` and `--sources`.
-   For beliefs, also pass `--confidence` and optionally `--formed` / `--updated`.
-9. For new beliefs, set initial confidence based on evidence strength:
+5. **Extract entities:** **extract-entities** with `--text` set to the memory text. Review the candidates and finalize the entity set.
+6. **Check for duplicates** across both scopes: **check-duplicate** with appropriate `--section`, `--candidate`, and `--cross-scope` as needed. If a clear duplicate exists in either scope, do not add a new entry.
+7. Write the final entry via **append-entry**: set `--section`, `--scope user`, and for experiences `--date`, optional `--context`, `--entities`, `--text`. For world knowledge, also pass `--confidence` and `--sources`. For beliefs, also pass `--confidence` and optionally `--formed` / `--updated`.
+8. For new beliefs, set initial confidence based on evidence strength:
    - `0.4–0.5`: tentative, based on a single observation
    - `0.6–0.7`: moderate, based on 2+ observations
    - `0.8+`: strong, based on repeated consistent evidence
-10. **Reflect**: check whether the new memory reinforces or contradicts
-    any existing beliefs. If so, update confidence scores:
-    ```bash
-    python3 skills/memory/scripts/memory-manage.py update-confidence --section beliefs --index N --delta 0.1 --scope user
-    ```
-    Use `+0.1` for reinforcement, `-0.1` for weakening, `-0.2` for
-    strong contradiction. Beliefs below `0.2` are pruning candidates.
-11. Check if any entity now has 3+ mentions and lacks a summary. If so,
+9. **Reflect**: check whether the new memory reinforces or contradicts
+   any existing beliefs. If so, update confidence scores with **update-confidence** (`--section beliefs`, `--index`, `--delta`, `--scope user`). Use `+0.1` for reinforcement, `-0.1` for weakening, `-0.2` for
+   strong contradiction. Beliefs below `0.2` are pruning candidates.
+10. Check if any entity now has 3+ mentions and lacks a summary. If so,
     write a new entity summary.
-12. Verify the written file matches the plan.
-13. **Auto-reflect check** (see below).
+11. Verify the written file matches the plan.
+12. **Auto-reflect check** (see below).
 
 ## Classification guide
 
@@ -143,13 +111,8 @@ Before comparing, pruning, or writing memories, normalize using:
 4. Ignore date, tag, and framing when comparing duplicates.
 5. Normalize tense and trivial synonyms.
 
-For deterministic duplicate detection, use the script:
-
-```bash
-python3 skills/memory/scripts/memory-manage.py check-duplicate --section experiences --candidate "text"
-```
-
-The script uses three complementary similarity metrics (sequence ratio,
+For deterministic duplicate detection, use **check-duplicate** with the
+appropriate section and candidate text. The helper uses three complementary similarity metrics (sequence ratio,
 Jaccard, overlap coefficient) with a threshold of 0.65.
 
 ## Auto-reflect
@@ -171,14 +134,7 @@ without requiring the caller to explicitly schedule reflection.
 
 ### How to check
 
-After completing the retain write, run:
-
-```bash
-python3 skills/memory/scripts/memory-manage.py prune-beliefs --threshold 0.3
-python3 skills/memory/scripts/memory-manage.py suggest-summaries
-```
-
-Inspect the belief `updated` dates from the file you just wrote.
+After completing the retain write, run **prune-beliefs** (e.g. threshold `0.3`) and **suggest-summaries**. Inspect the belief `updated` dates from the file you just wrote.
 If any trigger condition is met, run the full reflect workflow
 (see `ref/reflect.md`) **in the same subagent invocation** — do not
 return and ask the caller to spawn a separate reflect.
@@ -186,11 +142,8 @@ return and ask the caller to spawn a separate reflect.
 ### Post-reflect curation
 
 After the auto-reflect pass completes (or is skipped), **always**
-regenerate the curated master so `MEMORY.md` stays in sync:
-
-```bash
-python3 skills/memory/scripts/memory-manage.py curate --scope user
-```
+regenerate the curated master so `MEMORY.md` stays in sync: **curate**
+with `--scope user` (or `--scope project` when working on project memory).
 
 ### What to report
 
@@ -223,4 +176,4 @@ At the end of the run, report:
 - **Unrecoverable format issue**: stop and report blocked.
 - **Sensitive data in existing memory**: redact if possible, otherwise remove and report.
 - **Ambiguous duplicate**: stop and report the ambiguity; do not bypass the guarded write path.
-- **Script not found**: fall back to manual parsing but warn that deterministic operations are degraded.
+- **Helpers unavailable**: fall back to manual parsing but warn that deterministic operations are degraded.

@@ -1,88 +1,23 @@
-# Script Reference
+# Skill helpers (`skills/memory/scripts/`)
 
-## memory-recall.py
+This skill ships **stdlib Python helpers** next to this folder. They implement the workflows defined in **`SKILL.md`** and the `ref/*.md` operation guides.
 
-```bash
-python3 skills/memory/scripts/memory-recall.py --help
+**Documentation does not embed copy-paste shell for those helpers.** Hosts and agents follow the skill; the runtime invokes the helpers as wired to this repository (paths and interpreter are an integration concern, not repeated here).
 
-# Show digest (world knowledge + beliefs + summaries + recent experiences):
-python3 skills/memory/scripts/memory-recall.py --show
-python3 skills/memory/scripts/memory-recall.py --show --scope user
-python3 skills/memory/scripts/memory-recall.py --show --scope project
-python3 skills/memory/scripts/memory-recall.py --show --last 10
-python3 skills/memory/scripts/memory-recall.py --show --days 7
+## Recall helper
 
-# Search both scopes (default):
-python3 skills/memory/scripts/memory-recall.py --keyword "database" --json
+Supports **digest** and **structured search** (keywords, entities, scopes, dates, sections, JSON output, stats, token budget). Full flag and behavior reference: **`ref/recall.md`**.
 
-# User scope only:
-python3 skills/memory/scripts/memory-recall.py --keyword "database" --scope user --json
+## Management helper
 
-# Project scope only:
-python3 skills/memory/scripts/memory-recall.py --entity "api-gateway" --scope project --cross-section --json
+Supports **validation**, **screening**, **guarded append**, **duplicate checks**, **entity extraction**, **confidence updates**, **conflicts**, **pruning**, **summary suggestions**, **promotion**, **forget** (find + delete), **curation**, **config validation**, and **config hints**. Each workflow names the operations and arguments in:
 
-# Temporal:
-python3 skills/memory/scripts/memory-recall.py --since 2026-03-01 --json
+- **`ref/retain.md`** — remember / guarded write / auto-reflect
+- **`ref/reflect.md`** / **`ref/reflect-techniques.md`** — reflect
+- **`ref/forget.md`** — forget
+- **`ref/promote.md`** — promote
+- **`ref/config.md`** — `memory-skill.config.json`
 
-# Section filter:
-python3 skills/memory/scripts/memory-recall.py --section beliefs --json
+## Automated tests
 
-# Stats (combined + per-scope):
-python3 skills/memory/scripts/memory-recall.py --stats
-python3 skills/memory/scripts/memory-recall.py --stats --scope user
-```
-
-## memory-manage.py
-
-```bash
-python3 skills/memory/scripts/memory-manage.py --help
-
-# Subagent model config (see ref/config.md):
-python3 skills/memory/scripts/memory-manage.py validate-config
-python3 skills/memory/scripts/memory-manage.py config-hints
-python3 skills/memory/scripts/memory-manage.py --skill-config /path/to/memory-skill.config.json validate-config
-
-# Initialize user memory:
-python3 skills/memory/scripts/memory-manage.py init-user
-
-# Validate structure:
-python3 skills/memory/scripts/memory-manage.py validate
-python3 skills/memory/scripts/memory-manage.py validate --scope user
-
-# Check for duplicates (cross-scope):
-python3 skills/memory/scripts/memory-manage.py check-duplicate --section experiences --candidate "text" --cross-scope
-
-# Screen text before storing:
-python3 skills/memory/scripts/memory-manage.py screen-text --text "some text"
-
-# Append a new entry through the guarded writer:
-python3 skills/memory/scripts/memory-manage.py append-entry --section experiences --scope user --date 2026-03-27 --context testing --entities "integration-tests,port-5432" --text "the memory text"
-
-# Update confidence (user scope by default):
-python3 skills/memory/scripts/memory-manage.py update-confidence --section beliefs --index 0 --delta 0.1
-python3 skills/memory/scripts/memory-manage.py update-confidence --section beliefs --index 0 --delta 0.1 --scope project
-
-# Extract entities from text:
-python3 skills/memory/scripts/memory-manage.py extract-entities --text "some text"
-
-# Find beliefs below threshold:
-python3 skills/memory/scripts/memory-manage.py prune-beliefs --threshold 0.2
-
-# Suggest entities needing summaries:
-python3 skills/memory/scripts/memory-manage.py suggest-summaries
-
-# Detect contradictions between beliefs:
-python3 skills/memory/scripts/memory-manage.py check-conflicts
-python3 skills/memory/scripts/memory-manage.py check-conflicts --scope user
-
-# Promote from user to project:
-python3 skills/memory/scripts/memory-manage.py promote --section experiences --index 0 --allow-project-promotion
-
-# Forget — step 1: fuzzy-find matching memories:
-python3 skills/memory/scripts/memory-manage.py find-matches --query "port conflict"
-python3 skills/memory/scripts/memory-manage.py find-matches --query "dev server" --threshold 0.3
-
-# Forget — step 2: delete a confirmed entry (after user approval):
-python3 skills/memory/scripts/memory-manage.py delete-entry --section experiences --index 0
-python3 skills/memory/scripts/memory-manage.py delete-entry --section beliefs --index 1
-```
+Maintainers run the bundled tests in `skills/memory/scripts/` after changing helper code, using the same Python environment the repo expects.

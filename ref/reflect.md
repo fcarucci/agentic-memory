@@ -22,33 +22,20 @@ Reflect runs in two modes:
    Apply the disposition parameters throughout the steps below.
 3. For each belief, assess whether recent experiences reinforce or
    contradict it (applying skepticism and literalism from the profile):
-   ```bash
-   python3 skills/memory/scripts/memory-recall.py --entity "belief-entity" --section experiences --json
-   ```
+   use the **recall helper** with entity `belief-entity`, section `experiences`, JSON output (`ref/recall.md`).
 4. Compute base confidence deltas using the evolution rules below,
    modulated by the behavioral profile (see `ref/profile.md`).
 5. **Apply reflect techniques** (read `ref/reflect-techniques.md`):
    - Self-verification probes — generate and check probe questions
    - Confidence calibration — weight deltas by evidence quality and β
    - Counterfactual analysis — assess dependency impact for beliefs ≥ 0.6
-6. Update confidence scores with the calibrated deltas:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py update-confidence --section beliefs --index N --delta <calibrated_delta>
-   ```
+6. Update confidence scores with the calibrated deltas using **update-confidence** (`--section beliefs`, `--index`, `--delta`).
 7. **Detect belief conflicts** (technique 4, profile-aware resolution):
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py check-conflicts
-   ```
+   run **check-conflicts**.
    Resolve flagged conflicts using the profile to break ties
    (see `ref/profile.md`).
-8. Prune beliefs below the threshold:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py prune-beliefs --threshold 0.2
-   ```
-9. Check for entity summary opportunities:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py suggest-summaries
-   ```
+8. Prune beliefs below the threshold: **prune-beliefs** (e.g. `--threshold 0.2`).
+9. Check for entity summary opportunities: **suggest-summaries**.
 10. **Synthesize reflections** (technique 5): look for cross-cutting
     patterns across experiences and beliefs that warrant a new entry
     in `## Reflections`.
@@ -56,10 +43,7 @@ Reflect runs in two modes:
     structure and use the guarded-write discipline from `ref/retain.md`.
 12. Write the updated file.
 13. **Regenerate the curated master** so `MEMORY.md` stays in sync:
-    ```bash
-    python3 skills/memory/scripts/memory-manage.py curate --scope user
-    ```
-    (Use `--scope project` when reflecting on project memory.)
+    **curate** with `--scope user` (use `--scope project` when reflecting on project memory).
 
 ### Confidence evolution rules
 
@@ -102,10 +86,7 @@ Run the supported maintenance cycle without adding a new memory:
 4. Check entity summary opportunities with `suggest-summaries`.
 5. Remove duplicates only when you can prove they are duplicates.
 6. Write the updated file.
-7. **Regenerate the curated master:**
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py curate --scope user
-   ```
+7. **Regenerate the curated master:** **curate** with `--scope user`.
 
 ### Required output (maintain)
 

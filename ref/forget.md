@@ -14,11 +14,7 @@ process: fuzzy-find matches, show them, ask for confirmation, then delete.
 
 ## Workflow (no subagent needed)
 
-1. **Find matches** — fuzzy-search with the user's description:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py find-matches --query "port conflict"
-   ```
-   Use `--scope user` or `--scope project` if the user specifies.
+1. **Find matches** — fuzzy-search with the user's description using **find-matches** and `--query`. Use scope flags if the user specifies user vs project.
    The default threshold (0.4) is intentionally lower than duplicate
    detection to cast a wide net.
 
@@ -31,10 +27,7 @@ process: fuzzy-find matches, show them, ask for confirmation, then delete.
 
 3. **Wait for confirmation** — never delete without the user confirming.
 
-4. **Delete confirmed entries** — for each confirmed item:
-   ```bash
-   python3 skills/memory/scripts/memory-manage.py delete-entry --section experiences --index 0
-   ```
+4. **Delete confirmed entries** — for each confirmed item, run **delete-entry** with the correct `--section` and `--index`.
    **Important:** delete in reverse index order within each section
    to avoid index shifting.
 
