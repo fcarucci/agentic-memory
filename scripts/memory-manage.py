@@ -2,8 +2,8 @@
 """Deterministic memory management operations for MEMORY.md.
 
 Supports two memory tiers:
-  - User memory:    ~/.agents/memory/MEMORY.md  (personal, default for writes)
-  - Project memory: <repo>/MEMORY.md            (shared, explicit promotion only)
+  - User memory:    ~/.agents/memory/MEMORY.md by default (see memory-recall.resolve_user_memory_path)
+  - Project memory: resolved at runtime (see memory-recall.resolve_project_memory_path)
 
 Usage:
     python skills/memory/scripts/memory-manage.py validate
@@ -37,16 +37,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from importlib import import_module
 recall_mod = import_module("memory-recall")
 
-MEMORY_PATH = recall_mod.MEMORY_PATH
-PROJECT_MEMORY_PATH = recall_mod.PROJECT_MEMORY_PATH
-USER_MEMORY_PATH = recall_mod.USER_MEMORY_PATH
-
-
 def resolve_path(scope: str) -> Path:
     """Return the memory file path for a single-file scope."""
     if scope == "user":
-        return USER_MEMORY_PATH
-    return PROJECT_MEMORY_PATH
+        return recall_mod.resolve_user_memory_path()
+    return recall_mod.resolve_project_memory_path()
 
 DUPLICATE_THRESHOLD = 0.65
 
@@ -1135,9 +1130,13 @@ def main():
             cross_scope_path=resolve_path(other_scope),
         )
     elif args.command == "promote":
-        result = promote(USER_MEMORY_PATH, PROJECT_MEMORY_PATH,
-                         args.section, args.index,
-                         allow_project_promotion=args.allow_project_promotion)
+        result = promote(
+            recall_mod.resolve_user_memory_path(),
+            recall_mod.resolve_project_memory_path(),
+            args.section,
+            args.index,
+            allow_project_promotion=args.allow_project_promotion,
+        )
     else:
         parser.error(f"Unknown command: {args.command}")
         return

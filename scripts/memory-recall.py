@@ -2,8 +2,8 @@
 """Structured recall over MEMORY.md (user and project scopes).
 
 Supports two memory tiers:
-  - User memory:    ~/.agents/memory/MEMORY.md  (personal, default)
-  - Project memory: <repo>/MEMORY.md            (shared, committed)
+  - User memory:    ~/.agents/memory/MEMORY.md by default (personal); overridable via env.
+  - Project memory: resolved per run (cwd / env); see resolve_project_memory_path().
 
 Recall searches both by default. Results are tagged with their source
 scope so the caller can distinguish personal from shared memories.
@@ -20,6 +20,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, field, asdict
@@ -27,12 +28,73 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
+# Override project memory location (optional).
+ENV_PROJECT_FILE = "AGENT_MEMORY_PROJECT_FILE"  # absolute or relative path to MEMORY.md
+ENV_PROJECT_ROOT = "AGENT_MEMORY_PROJECT_ROOT"  # directory; uses <root>/MEMORY.md
+# Override user memory location (optional).
+ENV_USER_FILE = "AGENT_MEMORY_USER_FILE"
+ENV_USER_ROOT = "AGENT_MEMORY_USER_ROOT"
 
-PROJECT_MEMORY_PATH = Path(__file__).resolve().parent.parent.parent.parent / "MEMORY.md"
-USER_MEMORY_DIR = Path.home() / ".agents" / "memory"
-USER_MEMORY_PATH = USER_MEMORY_DIR / "MEMORY.md"
+DEFAULT_USER_MEMORY_DIR = Path.home() / ".agents" / "memory"
+DEFAULT_USER_MEMORY_PATH = DEFAULT_USER_MEMORY_DIR / "MEMORY.md"
 
-MEMORY_PATH = PROJECT_MEMORY_PATH
+
+def _first_memory_md_in_parents(anchor: Path) -> Optional[Path]:
+    """Return the first existing MEMORY.md walking anchor, then its parents."""
+    here = anchor.resolve()
+    for d in [here, *here.parents]:
+        candidate = d / "MEMORY.md"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def resolve_project_memory_path() -> Path:
+    """Resolve the project-scope MEMORY.md path.
+
+    Precedence:
+    1. ``AGENT_MEMORY_PROJECT_FILE`` — path to the file.
+    2. ``AGENT_MEMORY_PROJECT_ROOT`` — directory containing ``MEMORY.md``.
+    3. Walk ``Path.cwd()`` upward for the first ``MEMORY.md``.
+    4. Walk upward from this script's directory (skill may live anywhere under the repo).
+    5. ``Path.cwd() / "MEMORY.md"`` (file may not exist yet).
+    """
+    raw_file = os.environ.get(ENV_PROJECT_FILE, "").strip()
+    if raw_file:
+        return Path(raw_file).expanduser().resolve()
+    raw_root = os.environ.get(ENV_PROJECT_ROOT, "").strip()
+    if raw_root:
+        return Path(raw_root).expanduser().resolve() / "MEMORY.md"
+    found = _first_memory_md_in_parents(Path.cwd())
+    if found:
+        return found
+    script_dir = Path(__file__).resolve().parent
+    found = _first_memory_md_in_parents(script_dir)
+    if found:
+        return found
+    return Path.cwd() / "MEMORY.md"
+
+
+def resolve_user_memory_path() -> Path:
+    """Resolve the user-scope MEMORY.md path.
+
+    Precedence:
+    1. ``AGENT_MEMORY_USER_FILE``
+    2. ``AGENT_MEMORY_USER_ROOT`` / ``MEMORY.md``
+    3. Default: ``~/.agents/memory/MEMORY.md``
+    """
+    raw_file = os.environ.get(ENV_USER_FILE, "").strip()
+    if raw_file:
+        return Path(raw_file).expanduser().resolve()
+    raw_root = os.environ.get(ENV_USER_ROOT, "").strip()
+    if raw_root:
+        return Path(raw_root).expanduser().resolve() / "MEMORY.md"
+    return DEFAULT_USER_MEMORY_PATH
+
+
+# Default user paths (for templates and docs); prefer resolve_user_memory_path() at runtime.
+USER_MEMORY_DIR = DEFAULT_USER_MEMORY_DIR
+USER_MEMORY_PATH = DEFAULT_USER_MEMORY_PATH
 
 SCOPES = ("user", "project", "both")
 
@@ -69,19 +131,23 @@ Summary paragraph. -->
 def resolve_memory_paths(scope: str) -> list[tuple[str, Path]]:
     """Return (label, path) pairs for the requested scope."""
     if scope == "user":
-        return [("user", USER_MEMORY_PATH)]
+        return [("user", resolve_user_memory_path())]
     elif scope == "project":
-        return [("project", PROJECT_MEMORY_PATH)]
+        return [("project", resolve_project_memory_path())]
     else:
-        return [("user", USER_MEMORY_PATH), ("project", PROJECT_MEMORY_PATH)]
+        return [
+            ("user", resolve_user_memory_path()),
+            ("project", resolve_project_memory_path()),
+        ]
 
 
 def ensure_user_memory() -> Path:
     """Create user memory dir and template if they don't exist."""
-    USER_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-    if not USER_MEMORY_PATH.exists():
-        USER_MEMORY_PATH.write_text(USER_MEMORY_TEMPLATE, encoding="utf-8")
-    return USER_MEMORY_PATH
+    path = resolve_user_memory_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text(USER_MEMORY_TEMPLATE, encoding="utf-8")
+    return path
 
 SECTION_NAMES = ("experiences", "world_knowledge", "beliefs", "reflections", "entity_summaries")
 
