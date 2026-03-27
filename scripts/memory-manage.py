@@ -944,17 +944,19 @@ def preview_belief_temporal_decay(path: Path, as_of: Optional[date] = None) -> d
                     "staleness_days": None,
                     "belief_age_days": None,
                     "temporal_decay_if_unsupported": 0.0,
+                    "warning": True,
                     "note": "missing formed/updated dates",
                 }
             )
             continue
         staleness_days = max(0, (as_of_d - ref).days)
-        age_ref = frm or upd
-        assert age_ref is not None
+        age_ref = frm or upd or ref  # ref is guaranteed non-None here
         belief_age_days = max(0, (as_of_d - age_ref).days)
         rows.append(
             {
                 "index": i,
+                "updated": (upd.isoformat() if upd else None),
+                "formed": (frm.isoformat() if frm else None),
                 "staleness_days": staleness_days,
                 "belief_age_days": belief_age_days,
                 "temporal_decay_if_unsupported": compute_temporal_decay_delta(

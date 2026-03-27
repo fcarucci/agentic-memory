@@ -3,6 +3,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -358,6 +359,7 @@ class TestConfidenceUpdate(unittest.TestCase):
 
     def test_no_bump_updated_preserves_belief_date(self):
         tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
         path = tmp / "mem.md"
         path.write_text(
             "## Beliefs\n\n"
@@ -390,6 +392,7 @@ class TestTemporalDecay(unittest.TestCase):
 
     def test_preview_belief_temporal_decay_shape(self):
         tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
         path = tmp / "mem.md"
         path.write_text(
             "## Beliefs\n\n"
@@ -401,8 +404,11 @@ class TestTemporalDecay(unittest.TestCase):
         out = manage.preview_belief_temporal_decay(path, as_of=as_of)
         self.assertEqual(out["as_of"], "2026-03-27")
         self.assertEqual(len(out["beliefs"]), 1)
-        self.assertIn("staleness_days", out["beliefs"][0])
-        self.assertIn("temporal_decay_if_unsupported", out["beliefs"][0])
+        b = out["beliefs"][0]
+        self.assertIn("staleness_days", b)
+        self.assertIn("temporal_decay_if_unsupported", b)
+        self.assertEqual(b["updated"], "2025-01-01")
+        self.assertEqual(b["formed"], "2025-01-01")
 
 
 class TestEntityExtraction(unittest.TestCase):
