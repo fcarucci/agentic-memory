@@ -308,6 +308,10 @@ review, curate).
 
 ### Promote (spawn subagent)
 
+After a successful promote, follow **`ref/promote.md`** **Post-promotion
+deduplication**: remove the user-scope copy with **delete-entry** unless the
+user asked to keep both.
+
 ```text
 Read and follow skills/memory/SKILL.md.
 

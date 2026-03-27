@@ -25,11 +25,27 @@ The promote operation automatically:
 - Inserts the entry at the top of the target section.
 - Reports the promoted text and target path.
 
-After promoting, consider whether the entry should be removed from user
-memory to avoid redundancy.
+## Post-promotion deduplication (required)
+
+After a **successful** promote, the **user-scope copy must be removed** so
+the same fact does not appear twice when recall searches both scopes.
+
+1. Use **delete-entry** with `--scope user`, the same `--section` and
+   `--index` that were passed to **promote** (the source index is unchanged
+   until deletion).
+2. Skip removal only if the user **explicitly** asked to keep the entry in
+   both scopes.
+3. If promote was **blocked** because a duplicate already existed in project
+   memory, do not delete from user memory unless the user wants to dedupe
+   manually—report the block and the existing project line instead.
+
+See **`ref/forget.md`** for **delete-entry** semantics; promotion uses the
+direct index path (no fuzzy find) because the source index is known.
 
 ## Required output
 
 - Whether promotion succeeded or was blocked (duplicate, policy, or safety).
 - The promoted text.
 - Final counts per section in the target file.
+- Whether the user-scope entry was **deleted** after success (or skipped per
+  explicit user request).
