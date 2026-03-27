@@ -30,48 +30,74 @@ from typing import Optional
 DEFAULT_USER_MEMORY_DIR = Path.home() / ".agents" / "memory"
 DEFAULT_USER_MEMORY_PATH = DEFAULT_USER_MEMORY_DIR / "MEMORY.md"
 
+# ---------------------------------------------------------------------------
+# Section files: one .md per memory type
+# ---------------------------------------------------------------------------
 
-def _first_memory_md_in_parents(anchor: Path) -> Optional[Path]:
-    """Return the first existing MEMORY.md walking anchor, then its parents."""
-    here = anchor.resolve()
-    for d in [here, *here.parents]:
-        candidate = d / "MEMORY.md"
-        if candidate.is_file():
-            return candidate
-    return None
+SECTION_FILES: dict[str, str] = {
+    "experiences": "experiences.md",
+    "world_knowledge": "world_knowledge.md",
+    "beliefs": "beliefs.md",
+    "reflections": "reflections.md",
+    "entity_summaries": "entity_summaries.md",
+}
 
+SECTION_TEMPLATES: dict[str, str] = {
+    "experiences": (
+        "## Experiences\n\n"
+        "<!-- Newest first. Format: - **YYYY-MM-DD** [context] {entities: e1, e2} Narrative memory text. -->\n"
+    ),
+    "world_knowledge": (
+        "## World Knowledge\n\n"
+        "<!-- Verified, objective facts about the project and environment. Format:\n"
+        "- {entities: e1} Fact text. (confidence: 0.XX, sources: N) -->\n"
+    ),
+    "beliefs": (
+        "## Beliefs\n\n"
+        "<!-- Agent's subjective judgments that evolve over time. Format:\n"
+        "- {entities: e1} Belief text. (confidence: 0.XX, formed: YYYY-MM-DD, updated: YYYY-MM-DD) -->\n"
+    ),
+    "reflections": (
+        "## Reflections\n\n"
+        "<!-- Higher-level patterns synthesized from multiple experiences and beliefs. Format:\n"
+        "- **YYYY-MM-DD** {entities: e1, e2} Reflection text. -->\n"
+    ),
+    "entity_summaries": (
+        "## Entity Summaries\n\n"
+        "<!-- Synthesized profiles of key entities, regenerated when underlying memories change. Format:\n"
+        "### entity-name\nSummary paragraph. -->\n"
+    ),
+}
 
-def resolve_project_memory_path() -> Path:
-    """Resolve the project-scope MEMORY.md path.
+CURATED_MASTER_TEMPLATE = """\
+# Agent Memory
 
-    Precedence:
-    1. Walk ``Path.cwd()`` upward for the first ``MEMORY.md``.
-    2. Walk upward from this script's directory (skill may live anywhere under the repo).
-    3. ``Path.cwd() / "MEMORY.md"`` (file may not exist yet).
-    """
-    found = _first_memory_md_in_parents(Path.cwd())
-    if found:
-        return found
-    script_dir = Path(__file__).resolve().parent
-    found = _first_memory_md_in_parents(script_dir)
-    if found:
-        return found
-    return Path.cwd() / "MEMORY.md"
+<!-- Curated subset suitable for inclusion in AGENTS.md.
+     Full memories are stored in per-section files.
+     Regenerate with: memory-manage.py curate -->
 
+## World Knowledge
 
-def resolve_user_memory_path() -> Path:
-    """Return the user-scope MEMORY.md path (``~/.agents/memory/MEMORY.md``)."""
-    return DEFAULT_USER_MEMORY_PATH
+## Beliefs
 
-
-# Default user paths (for templates and docs); prefer resolve_user_memory_path() at runtime.
-USER_MEMORY_DIR = DEFAULT_USER_MEMORY_DIR
-USER_MEMORY_PATH = DEFAULT_USER_MEMORY_PATH
-
-SCOPES = ("user", "project", "both")
+## Entity Summaries
+"""
 
 USER_MEMORY_TEMPLATE = """\
 # User Memory
+
+<!-- Curated subset. Full memories in per-section files alongside this file. -->
+
+## World Knowledge
+
+## Beliefs
+
+## Entity Summaries
+"""
+
+# Legacy single-file template (used for backward-compat validation only).
+LEGACY_SINGLE_FILE_TEMPLATE = """\
+# Agent Memory
 
 ## Experiences
 
@@ -99,9 +125,103 @@ USER_MEMORY_TEMPLATE = """\
 Summary paragraph. -->
 """
 
+# ---------------------------------------------------------------------------
+# Path resolution
+# ---------------------------------------------------------------------------
+
+def _first_memory_md_in_parents(anchor: Path) -> Optional[Path]:
+    """Return the first existing MEMORY.md walking anchor, then its parents."""
+    here = anchor.resolve()
+    for d in [here, *here.parents]:
+        candidate = d / "MEMORY.md"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def resolve_project_memory_path() -> Path:
+    """Resolve the project-scope MEMORY.md (curated master) path.
+
+    Precedence:
+    1. Walk ``Path.cwd()`` upward for the first ``MEMORY.md``.
+    2. Walk upward from this script's directory.
+    3. ``Path.cwd() / "MEMORY.md"`` (may not exist yet).
+    """
+    found = _first_memory_md_in_parents(Path.cwd())
+    if found:
+        return found
+    script_dir = Path(__file__).resolve().parent
+    found = _first_memory_md_in_parents(script_dir)
+    if found:
+        return found
+    return Path.cwd() / "MEMORY.md"
+
+
+def resolve_user_memory_path() -> Path:
+    """Return the user-scope MEMORY.md path (``~/.agents/memory/MEMORY.md``)."""
+    return DEFAULT_USER_MEMORY_PATH
+
+
+def resolve_section_dir(scope: str) -> Path:
+    """Return the directory that holds per-section files for *scope*.
+
+    - **user**: ``~/.agents/memory/`` (section files alongside MEMORY.md).
+    - **project**: ``<repo>/memory/`` (subdirectory next to repo-root MEMORY.md).
+    """
+    if scope == "user":
+        return resolve_user_memory_path().parent
+    return resolve_project_memory_path().parent / "memory"
+
+
+def section_file_path(section_dir: Path, section: str) -> Path:
+    """Full path to a section file inside *section_dir*."""
+    return section_dir / SECTION_FILES[section]
+
+
+def has_section_files(section_dir: Path) -> bool:
+    """True if at least one section file exists in *section_dir*."""
+    if not section_dir.is_dir():
+        return False
+    return any((section_dir / f).exists() for f in SECTION_FILES.values())
+
+
+# Legacy compat names.
+USER_MEMORY_DIR = DEFAULT_USER_MEMORY_DIR
+USER_MEMORY_PATH = DEFAULT_USER_MEMORY_PATH
+
+SCOPES = ("user", "project", "both")
+
+# ---------------------------------------------------------------------------
+# Loading helpers
+# ---------------------------------------------------------------------------
+
+def load_memory_from_sections(section_dir: Path) -> "MemoryBank":
+    """Build a MemoryBank by reading individual section files."""
+    bank = MemoryBank()
+    for section_name in SECTION_FILES:
+        path = section_dir / SECTION_FILES[section_name]
+        if path.exists():
+            section_bank = parse_memory_file(path)
+            getattr(bank, section_name).extend(getattr(section_bank, section_name))
+    return bank
+
+
+def load_memory(master_path: Path, section_dir: Path) -> "MemoryBank":
+    """Load from section files when available, else from a single master."""
+    if has_section_files(section_dir):
+        return load_memory_from_sections(section_dir)
+    return parse_memory_file(master_path)
+
+
+def resolve_memory_sources(scope: str) -> tuple[Path, Path]:
+    """Return ``(master_path, section_dir)`` for the given scope."""
+    if scope == "user":
+        return resolve_user_memory_path(), resolve_section_dir("user")
+    return resolve_project_memory_path(), resolve_section_dir("project")
+
 
 def resolve_memory_paths(scope: str) -> list[tuple[str, Path]]:
-    """Return (label, path) pairs for the requested scope."""
+    """Return (label, path) pairs for the requested scope (legacy compat)."""
     if scope == "user":
         return [("user", resolve_user_memory_path())]
     elif scope == "project":
@@ -113,12 +233,27 @@ def resolve_memory_paths(scope: str) -> list[tuple[str, Path]]:
         ]
 
 
+def ensure_section_file(section_dir: Path, section: str) -> Path:
+    """Create a section file from its template if it does not exist."""
+    path = section_file_path(section_dir, section)
+    if not path.exists():
+        section_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(SECTION_TEMPLATES[section], encoding="utf-8")
+    return path
+
+
+def ensure_section_files(section_dir: Path) -> list[Path]:
+    """Create all section files that do not yet exist."""
+    return [ensure_section_file(section_dir, s) for s in SECTION_FILES]
+
+
 def ensure_user_memory() -> Path:
-    """Create user memory dir and template if they don't exist."""
+    """Create user memory directory, curated master, and section files."""
     path = resolve_user_memory_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         path.write_text(USER_MEMORY_TEMPLATE, encoding="utf-8")
+    ensure_section_files(path.parent)
     return path
 
 SECTION_NAMES = ("experiences", "world_knowledge", "beliefs", "reflections", "entity_summaries")
@@ -685,8 +820,14 @@ def main():
     if args.file:
         banks = [("file", parse_memory_file(args.file))]
     else:
-        paths = resolve_memory_paths(args.scope)
-        banks = [(label, parse_memory_file(path)) for label, path in paths]
+        scopes_to_load = (
+            ["user", "project"] if args.scope == "both"
+            else [args.scope]
+        )
+        banks = []
+        for sc in scopes_to_load:
+            master, sec_dir = resolve_memory_sources(sc)
+            banks.append((sc, load_memory(master, sec_dir)))
 
     if args.show:
         output = digest(banks, last=args.last, days=args.days)

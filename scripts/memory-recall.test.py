@@ -1073,5 +1073,204 @@ class TestDeleteEntry(unittest.TestCase):
         self.assertTrue(result["valid"])
 
 
+# ---- Multi-file section tests -----------------------------------------------
+
+def _write_section_files(section_dir: Path):
+    """Create populated section files for testing."""
+    section_dir.mkdir(parents=True, exist_ok=True)
+    (section_dir / "experiences.md").write_text(
+        "## Experiences\n\n<!-- comment -->\n\n"
+        "- **2026-03-26** [debug] {entities: integration-tests, port-5432} The integration test suite hung because port 5432 was bound.\n"
+        "- **2026-03-20** [tooling] {entities: dev-server} Running the dev server alone is insufficient for CSS hot reload.\n",
+        encoding="utf-8",
+    )
+    (section_dir / "world_knowledge.md").write_text(
+        "## World Knowledge\n\n<!-- comment -->\n\n"
+        "- {entities: postgresql} PostgreSQL 16 requires listen_addresses for remote connections. (confidence: 0.95, sources: 3)\n",
+        encoding="utf-8",
+    )
+    (section_dir / "beliefs.md").write_text(
+        "## Beliefs\n\n<!-- comment -->\n\n"
+        "- {entities: dev-command} The combined dev command is more reliable. (confidence: 0.70, formed: 2026-03-15, updated: 2026-03-20)\n",
+        encoding="utf-8",
+    )
+    (section_dir / "reflections.md").write_text(
+        "## Reflections\n\n<!-- comment -->\n\n"
+        "- **2026-03-26** {entities: dev-server, port-5432} Port conflicts are systemic.\n",
+        encoding="utf-8",
+    )
+    (section_dir / "entity_summaries.md").write_text(
+        "## Entity Summaries\n\n<!-- comment -->\n\n"
+        "### postgresql\nThe primary database.\n",
+        encoding="utf-8",
+    )
+
+
+class TestSectionFileLoading(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.section_dir = self.tmp / "memory"
+        _write_section_files(self.section_dir)
+
+    def test_has_section_files(self):
+        self.assertTrue(recall.has_section_files(self.section_dir))
+
+    def test_load_memory_from_sections(self):
+        bank = recall.load_memory_from_sections(self.section_dir)
+        self.assertEqual(len(bank.experiences), 2)
+        self.assertEqual(len(bank.world_knowledge), 1)
+        self.assertEqual(len(bank.beliefs), 1)
+        self.assertEqual(len(bank.reflections), 1)
+        self.assertEqual(len(bank.entity_summaries), 1)
+
+    def test_load_memory_prefers_sections(self):
+        master = self.tmp / "MEMORY.md"
+        master.write_text(SAMPLE_MEMORY, encoding="utf-8")
+        bank = recall.load_memory(master, self.section_dir)
+        self.assertEqual(len(bank.experiences), 2)
+
+    def test_load_memory_falls_back_to_master(self):
+        master = self.tmp / "MEMORY.md"
+        master.write_text(SAMPLE_MEMORY, encoding="utf-8")
+        empty_dir = self.tmp / "empty"
+        bank = recall.load_memory(master, empty_dir)
+        self.assertEqual(len(bank.experiences), 4)
+
+    def test_digest_from_sections(self):
+        bank = recall.load_memory_from_sections(self.section_dir)
+        output = recall.digest([("project", bank)])
+        self.assertIn("listen_addresses", output)
+        self.assertIn("Recent Experiences", output)
+
+    def test_recall_from_sections(self):
+        bank = recall.load_memory_from_sections(self.section_dir)
+        result = recall.recall(bank, keyword="hung")
+        self.assertEqual(len(result.get("experiences", [])), 1)
+
+
+class TestSectionEnsure(unittest.TestCase):
+    def test_ensure_section_file_creates(self):
+        tmp = Path(tempfile.mkdtemp())
+        section_dir = tmp / "memory"
+        path = recall.ensure_section_file(section_dir, "experiences")
+        self.assertTrue(path.exists())
+        self.assertIn("## Experiences", path.read_text(encoding="utf-8"))
+
+    def test_ensure_section_files_creates_all(self):
+        tmp = Path(tempfile.mkdtemp())
+        section_dir = tmp / "memory"
+        paths = recall.ensure_section_files(section_dir)
+        self.assertEqual(len(paths), 5)
+        for p in paths:
+            self.assertTrue(p.exists())
+
+
+class TestMigrate(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.master = self.tmp / "MEMORY.md"
+        self.master.write_text(SAMPLE_MEMORY, encoding="utf-8")
+        self.section_dir = self.tmp / "memory"
+
+    def test_migrate_creates_section_files(self):
+        result = manage.migrate(self.master, "project")
+        self.assertTrue(result["success"])
+        self.assertTrue((self.section_dir / "experiences.md").exists())
+        self.assertTrue((self.section_dir / "world_knowledge.md").exists())
+        self.assertTrue((self.section_dir / "beliefs.md").exists())
+        self.assertTrue((self.section_dir / "reflections.md").exists())
+        self.assertTrue((self.section_dir / "entity_summaries.md").exists())
+
+    def test_migrate_entries_count(self):
+        result = manage.migrate(self.master, "project")
+        self.assertEqual(result["entries_migrated"]["experiences"], 4)
+        self.assertEqual(result["entries_migrated"]["world_knowledge"], 3)
+        self.assertEqual(result["entries_migrated"]["beliefs"], 2)
+        self.assertEqual(result["entries_migrated"]["reflections"], 1)
+
+    def test_migrate_backs_up_master(self):
+        manage.migrate(self.master, "project")
+        self.assertTrue((self.tmp / "MEMORY.md.bak").exists())
+
+    def test_migrate_replaces_master_with_curated(self):
+        manage.migrate(self.master, "project")
+        content = self.master.read_text(encoding="utf-8")
+        self.assertIn("Curated subset", content)
+
+    def test_migrated_sections_parse_correctly(self):
+        manage.migrate(self.master, "project")
+        bank = recall.load_memory_from_sections(self.section_dir)
+        self.assertEqual(len(bank.experiences), 4)
+        self.assertEqual(len(bank.world_knowledge), 3)
+        self.assertEqual(len(bank.beliefs), 2)
+        self.assertEqual(len(bank.entity_summaries), 2)
+
+
+class TestCurate(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.section_dir = self.tmp / "memory"
+        _write_section_files(self.section_dir)
+        self.master = self.tmp / "MEMORY.md"
+        self.master.write_text(recall.CURATED_MASTER_TEMPLATE, encoding="utf-8")
+
+    def test_curate_writes_master(self):
+        old_recall = recall.resolve_project_memory_path
+        old_section = recall.resolve_section_dir
+        recall.resolve_project_memory_path = lambda: self.master
+        recall.resolve_section_dir = lambda scope: self.section_dir
+        try:
+            result = manage.curate("project")
+            self.assertTrue(result["success"])
+            content = self.master.read_text(encoding="utf-8")
+            self.assertIn("listen_addresses", content)
+            self.assertIn("combined dev command", content)
+            self.assertIn("postgresql", content)
+        finally:
+            recall.resolve_project_memory_path = old_recall
+            recall.resolve_section_dir = old_section
+
+
+class TestValidateSections(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.section_dir = self.tmp / "memory"
+        _write_section_files(self.section_dir)
+
+    def test_valid_sections(self):
+        old_fn = recall.resolve_section_dir
+        recall.resolve_section_dir = lambda scope: self.section_dir
+        try:
+            result = manage.validate_sections("project")
+            self.assertTrue(result["valid"])
+            self.assertEqual(result["counts"]["experiences"], 2)
+        finally:
+            recall.resolve_section_dir = old_fn
+
+
+class TestAppendToSectionFile(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.section_dir = self.tmp / "memory"
+        _write_section_files(self.section_dir)
+        self.master = self.tmp / "MEMORY.md"
+        self.master.write_text(recall.CURATED_MASTER_TEMPLATE, encoding="utf-8")
+
+    def test_append_goes_to_section_file(self):
+        sf = self.section_dir / "experiences.md"
+        result = manage.append_entry(
+            sf,
+            section="experiences",
+            text="New test entry for section file append.",
+            scope_label="project",
+            date="2026-03-27",
+            context="testing",
+            entities=["test-append"],
+        )
+        self.assertTrue(result["success"])
+        bank = recall.parse_memory_file(sf)
+        self.assertEqual(len(bank.experiences), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

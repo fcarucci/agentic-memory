@@ -4,10 +4,12 @@ Persistent, **structured agent memory** stored as Markdown—not a vector databa
 
 ## What this skill does
 
-- **Two tiers:** **user** memory at `~/.agents/memory/MEMORY.md` (default for new writes) and **project** memory at `<repository-root>/MEMORY.md` (shared, usually via promotion).
-- **Five networks** in each file: **Experiences**, **World knowledge**, **Beliefs**, **Reflections**, and **Entity summaries**—each with a defined epistemic role (see `SKILL.md` and `ref/format.md`).
-- **Operations:** remember (guarded write), show/recall (read & search), reflect, maintain, promote (user → project), forget—driven by `SKILL.md` dispatch tables and `ref/*.md` playbooks.
-- **Scripts:** `memory-recall.py` (digest and structured query) and `memory-manage.py` (append, validate, duplicates, confidence updates, promotion, etc.). No extra pip packages for core flows.
+- **Two tiers:** **user** memory at `~/.agents/memory/` and **project** memory at `<repo>/memory/` (shared, usually via promotion).
+- **Five memory types**, each in its own file: **experiences**, **world knowledge**, **beliefs**, **reflections**, and **entity summaries**.
+- **Curated master `MEMORY.md`** at scope root—a compact subset of world knowledge, beliefs, and entity summaries suitable for direct inclusion in `AGENTS.md`.
+- **Operations:** remember (guarded write), show/recall (read & search), reflect, maintain, promote (user → project), forget, **migrate** (single → multi-file), **curate** (regenerate master from section files).
+- **Scripts:** `memory-recall.py` (digest and structured query) and `memory-manage.py` (append, validate, duplicates, confidence updates, promotion, migration, curation, etc.). No extra pip packages.
+- **Backward compatible:** if only a single `MEMORY.md` exists (legacy layout), the scripts fall back to reading/writing it.
 
 Authoritative behavior and trigger phrases live in **`SKILL.md`**. This README is the on-ramp for humans and for wiring the skill into other products.
 
@@ -17,25 +19,51 @@ The architecture is **inspired by [Hindsight](https://arxiv.org/abs/2512.12818)*
 
 This implementation:
 
-- Uses **Markdown files** instead of the paper’s full system stack.
+- Uses **Markdown files** instead of the paper's full system stack.
 - Aligns with Hindsight-style **separation of facts, experiences, evolving beliefs, and entity-centric summaries**.
-- Adds an explicit **Reflections** section and **two-tier scoping** (user vs project) for local vs team-shared memory—see `SKILL.md` → Architecture.
+- Adds an explicit **Reflections** section and **two-tier scoping** (user vs project) for local vs team-shared memory.
 
 It is **not** a faithful reproduction of every detail in the paper; it is a **practical, text-first** adaptation for coding agents.
+
+## File layout
+
+### Project scope
+
+```
+<repo>/MEMORY.md                          # curated master (world knowledge + beliefs + entity summaries)
+<repo>/memory/experiences.md              # all experiences
+<repo>/memory/world_knowledge.md          # verified facts
+<repo>/memory/beliefs.md                  # subjective judgments
+<repo>/memory/reflections.md              # higher-level patterns
+<repo>/memory/entity_summaries.md         # synthesized entity profiles
+```
+
+### User scope
+
+```
+~/.agents/memory/MEMORY.md                # curated master
+~/.agents/memory/experiences.md           # all experiences
+~/.agents/memory/world_knowledge.md
+~/.agents/memory/beliefs.md
+~/.agents/memory/reflections.md
+~/.agents/memory/entity_summaries.md
+```
+
+Writes go to the **per-section files**. The curated master is regenerated on demand with `memory-manage.py curate`.
 
 ## Install
 
 Requirements: **Python 3** on `PATH` (`python3`). Scripts are plain stdlib.
 
-### Where `MEMORY.md` is found (project scope)
+### Path discovery
 
-The skill **does not assume** a fixed install path (no required `skills/memory/` depth). **`memory-recall.py`** and **`memory-manage.py`** resolve the **project** `MEMORY.md` in this order—**without environment variables**:
+The skill **does not assume** a fixed install path. Scripts resolve the **project** `MEMORY.md` by:
 
-1. Walk **upward from the process current working directory** and use the first `MEMORY.md` found (run tools from the repo root or any subdirectory under it).
-2. Walk **upward from the script’s directory** so the skill can live under `.cursor/skills/memory`, `skills/memory`, or elsewhere **inside** the tree and still find the project file.
-3. If no file exists yet: **`./MEMORY.md`** relative to the current working directory (natural default when cwd is the project root).
+1. Walking **upward from cwd** for the first `MEMORY.md`.
+2. Walking **upward from the script's directory**.
+3. Falling back to **`./MEMORY.md`** (natural default when cwd is the project root).
 
-**User** memory is always **`~/.agents/memory/MEMORY.md`** (created by `init-user`).
+Section files are derived from the master path: **`<master-parent>/memory/`** for project scope, **`<master-parent>/`** for user scope.
 
 ### Cursor
 
@@ -48,43 +76,27 @@ The skill **does not assume** a fixed install path (no required `skills/memory/`
 
    - **Submodule (recommended for teams):** add this repo as a submodule at `skills/memory`, then symlink:
 
-     `ln -s ../../skills/memory .cursor/skills/memory`  
-     (paths relative to your repo layout—keep `SKILL.md` at the symlink target root.)
+     `ln -s ../../skills/memory .cursor/skills/memory`
 
-   - **Direct copy:** clone into `.cursor/skills/memory/` (contents at that folder’s root, not nested `agent-memory/SKILL.md`).
+   - **Direct copy:** clone into `.cursor/skills/memory/` (contents at that folder's root, not nested `agent-memory/SKILL.md`).
 
-2. Ensure **Agent Skills** (or your Cursor version’s equivalent) loads project skills from `.cursor/skills/`.
+2. Ensure **Agent Skills** loads project skills from `.cursor/skills/`.
 
-3. From the **repository root**, agents can run:
+3. Agents can run from the **repository root**:
 
-   `python3 skills/memory/scripts/memory-recall.py --show`  
-   only if that path exists; if the skill exists **only** under `.cursor/skills/memory`, use:
-
-   `python3 .cursor/skills/memory/scripts/memory-recall.py --show`  
-   or symlink `skills/memory` → `.cursor/skills/memory` for one canonical path.
+   `python3 skills/memory/scripts/memory-recall.py --show`
 
 ### OpenAI Codex (CLI / IDE)
 
-Codex loads skills from user skill directories (e.g. under **`$CODEX_HOME/skills`**). Install by placing this skill as a folder named **`memory`** with `SKILL.md` at its root:
-
 ```bash
-# Example: clone into Codex user skills (adjust if your install uses another root)
 git clone git@github.com:fcarucci/agent-memory.git "$CODEX_HOME/skills/memory"
 ```
 
-If you use a **project-relative** skill path instead, mirror the same **flat** layout: `…/memory/SKILL.md`, not `…/memory/agent-memory/SKILL.md`.
-
-Restart or refresh Codex so new skills are discovered. Run memory scripts with **cwd** under the project tree (ideally the repo root) so upward discovery finds the correct `MEMORY.md`.
+Run memory scripts with **cwd** under the project tree so upward discovery finds the correct `MEMORY.md`.
 
 ### Claude (Claude Code / team setups)
 
-Typical pattern: project skills under **`.claude/skills/`**. Copy or symlink this repo so you have:
-
-`.claude/skills/memory/SKILL.md`  
-`.claude/skills/memory/scripts/*.py`  
-etc.
-
-Point your agent instructions at **`SKILL.md`** and use the same Python commands from the git **repository root** where `MEMORY.md` should live, adjusting script prefixes if needed.
+Copy or symlink this repo so you have `.claude/skills/memory/SKILL.md`, etc. Use the same Python commands from the repo root.
 
 ### Initialize user memory (once per machine)
 
@@ -92,7 +104,18 @@ Point your agent instructions at **`SKILL.md`** and use the same Python commands
 python3 skills/memory/scripts/memory-manage.py init-user
 ```
 
-(Run from project root, or substitute your install path.)
+This creates `~/.agents/memory/MEMORY.md` (curated master) and all five section files.
+
+### Migrate from single-file layout
+
+If you have an existing single-file `MEMORY.md` with all sections, split it into per-section files:
+
+```bash
+python3 skills/memory/scripts/memory-manage.py migrate --scope project
+python3 skills/memory/scripts/memory-manage.py migrate --scope user
+```
+
+This backs up the original as `MEMORY.md.bak`, creates the section files, and replaces the master with the curated template.
 
 ## How to use
 
@@ -104,20 +127,24 @@ python3 skills/memory/scripts/memory-manage.py init-user
 
    `python3 skills/memory/scripts/memory-recall.py --entity "<topic>" --cross-section --json`
 
-3. **Storing memories:** follow **`SKILL.md`**—user phrases like “remember this” require spawning a subagent with `action: remember` (see SKILL for exact payload).
+3. **Storing memories:** follow **`SKILL.md`**—user phrases like "remember this" require spawning a subagent with `action: remember`.
 
-4. **Editing `MEMORY.md` by hand:** discouraged for writes; use the retain workflow and `memory-manage.py` so format, entities, and duplicates stay consistent (`ref/retain.md`, `ref/format.md`).
+4. **Regenerate curated master:**
+
+   `python3 skills/memory/scripts/memory-manage.py curate --scope project`
+
+5. **Validate section files:**
+
+   `python3 skills/memory/scripts/memory-manage.py validate-sections --scope user`
 
 Full CLI examples: **`ref/scripts.md`**.
 
 ### Minimal `AGENTS.md` (or global agent instructions)
 
-Add a short block so every agent knows where the skill lives and to use scripts instead of raw `MEMORY.md`:
-
 ```markdown
 ## Agent memory
 
-**Skill:** read and follow [`skills/memory/SKILL.md`](skills/memory/SKILL.md) (or `.cursor/skills/memory/SKILL.md` if that is your only copy).
+**Skill:** read and follow [`skills/memory/SKILL.md`](skills/memory/SKILL.md).
 
 **Session start:** run structured recall (not raw file reads):
 
@@ -127,39 +154,38 @@ Add a short block so every agent knows where the skill lives and to use scripts 
 
 `python3 skills/memory/scripts/memory-recall.py --entity "<task-topic>" --cross-section --json`
 
-**Storing memories:** when the user asks to remember something, follow `SKILL.md` and spawn a subagent for `action: remember` as specified there—do not edit `MEMORY.md` directly for routine writes.
+**Storing memories:** follow `SKILL.md` and spawn a subagent for `action: remember`—do not edit memory files directly for routine writes.
 
-**Maintaining memory:** use `skills/memory/scripts/memory-manage.py` and the `ref/*.md` workflows; see `ref/scripts.md` for commands.
-
-For write operations, memory subagents must read `SKILL.md` and the referenced `ref/*.md` files in full.
+**Curated master:** `MEMORY.md` at the repo root is a curated subset of
+world knowledge, beliefs, and entity summaries. Regenerate with
+`memory-manage.py curate --scope project`. Full memories live in
+per-section files under `memory/`.
 ```
 
-Adjust **`skills/memory/`** in every path if your install uses `.cursor/skills/memory/` or another prefix.
-
-**Working directory:** agents should run memory commands from the **project checkout** (root or a subfolder). If cwd is outside the repo (e.g. `/tmp`), discovery may pick up another tree’s `MEMORY.md` via the script path or resolve to `./MEMORY.md` under that cwd—avoid that by standardizing on **repo-root cwd** in `AGENTS.md` / tool configs.
+Adjust paths if your install uses `.cursor/skills/memory/` or another prefix.
 
 ## Configuration options
 
-### Paths (no environment variables)
+### Paths
 
 | Location | How it is chosen |
 |----------|------------------|
-| Project `MEMORY.md` | cwd walk → script-dir walk → `cwd/MEMORY.md` (see above). |
-| User `MEMORY.md` | Always `~/.agents/memory/MEMORY.md`. |
+| Project `MEMORY.md` | cwd walk → script-dir walk → `cwd/MEMORY.md`. |
+| Project section files | `<MEMORY.md parent>/memory/*.md`. |
+| User `MEMORY.md` | `~/.agents/memory/MEMORY.md`. |
+| User section files | `~/.agents/memory/*.md` (alongside master). |
 
-To use a different user or project file location, run the tools with **`memory-recall.py --file <path>`** (and the matching `--file` on `memory-manage.py` subcommands that support it), or adjust the resolver in code.
+Use **`--file <path>`** on `memory-recall.py` or `memory-manage.py` to override scope resolution for a single invocation.
 
 ### Scopes (CLI)
 
-- **`--scope user`**, **`--scope project`**, **`--scope both`** (default for many queries): control which file(s) are read or written. See `memory-recall.py --help` and `memory-manage.py --help`.
+- **`--scope user`**, **`--scope project`**, **`--scope both`** (default for queries): control which scope(s) are read or written.
 
 ### Behavior constants (code)
 
-Duplicate detection threshold, context tags, entity heuristics, and sensitive-value screening live in **`memory-manage.py`** (e.g. `DUPLICATE_THRESHOLD`, `CANONICAL_CONTEXT_TAGS`). Tune there if you need stricter or looser policies.
+Duplicate detection threshold, context tags, entity heuristics, and sensitive-value screening live in **`memory-manage.py`** (e.g. `DUPLICATE_THRESHOLD`, `CANONICAL_CONTEXT_TAGS`).
 
 ### Tests
-
-From repository root:
 
 ```bash
 python3 skills/memory/scripts/memory-recall.test.py

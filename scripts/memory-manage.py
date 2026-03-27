@@ -38,10 +38,16 @@ from importlib import import_module
 recall_mod = import_module("memory-recall")
 
 def resolve_path(scope: str) -> Path:
-    """Return the memory file path for a single-file scope."""
+    """Return the curated master MEMORY.md for a scope (legacy compat)."""
     if scope == "user":
         return recall_mod.resolve_user_memory_path()
     return recall_mod.resolve_project_memory_path()
+
+
+def resolve_section_path(scope: str, section: str) -> Path:
+    """Return the section file path, creating it if needed."""
+    section_dir = recall_mod.resolve_section_dir(scope)
+    return recall_mod.ensure_section_file(section_dir, section)
 
 DUPLICATE_THRESHOLD = 0.65
 
@@ -254,31 +260,10 @@ def similarity(a: str, b: str) -> float:
     return max(seq_ratio, jaccard, overlap)
 
 
-def validate(path: Path) -> dict:
-    """Validate MEMORY.md structure and return diagnostics."""
-    if not path.exists():
-        return {"valid": False, "errors": ["MEMORY.md does not exist"], "warnings": []}
-
-    content = path.read_text(encoding="utf-8")
-    errors = []
-    warnings = []
-
-    valid_headings = ("# Agent Memory", "# User Memory",
-                       "# Daneel Agent Memory", "# Daneel User Memory")
-    if not any(h in content for h in valid_headings):
-        errors.append(
-            "Missing top-level heading (expected '# Agent Memory' or '# User Memory')"
-        )
-    if "## Experiences" not in content:
-        errors.append("Missing section '## Experiences'")
-    if "## World Knowledge" not in content:
-        errors.append("Missing section '## World Knowledge'")
-    if "## Beliefs" not in content:
-        errors.append("Missing section '## Beliefs'")
-    if "## Entity Summaries" not in content:
-        errors.append("Missing section '## Entity Summaries'")
-
-    bank = recall_mod.parse_memory_file(path)
+def _validate_bank(bank: "recall_mod.MemoryBank") -> tuple[list[str], list[str]]:
+    """Return (errors, warnings) for entries inside a parsed bank."""
+    errors: list[str] = []
+    warnings: list[str] = []
 
     for i, exp in enumerate(bank.experiences):
         if not exp.date:
@@ -306,6 +291,36 @@ def validate(path: Path) -> dict:
         if not b.entities:
             warnings.append(f"Belief {i}: no entity tags")
 
+    return errors, warnings
+
+
+def validate(path: Path) -> dict:
+    """Validate a single MEMORY.md (legacy or curated master)."""
+    if not path.exists():
+        return {"valid": False, "errors": ["MEMORY.md does not exist"], "warnings": []}
+
+    content = path.read_text(encoding="utf-8")
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    valid_headings = ("# Agent Memory", "# User Memory",
+                       "# Daneel Agent Memory", "# Daneel User Memory")
+    if not any(h in content for h in valid_headings):
+        errors.append(
+            "Missing top-level heading (expected '# Agent Memory' or '# User Memory')"
+        )
+
+    is_curated = "per-section files" in content
+    if not is_curated:
+        for heading in ("## Experiences", "## World Knowledge", "## Beliefs", "## Entity Summaries"):
+            if heading not in content:
+                errors.append(f"Missing section '{heading}'")
+
+    bank = recall_mod.parse_memory_file(path)
+    entry_errors, entry_warnings = _validate_bank(bank)
+    errors.extend(entry_errors)
+    warnings.extend(entry_warnings)
+
     return {
         "valid": len(errors) == 0,
         "errors": errors,
@@ -316,6 +331,38 @@ def validate(path: Path) -> dict:
             "beliefs": len(bank.beliefs),
             "entity_summaries": len(bank.entity_summaries),
         },
+    }
+
+
+def validate_sections(scope: str) -> dict:
+    """Validate all per-section files for *scope*."""
+    section_dir = recall_mod.resolve_section_dir(scope)
+    if not recall_mod.has_section_files(section_dir):
+        return {"valid": False, "errors": ["No section files found"], "warnings": [],
+                "section_dir": str(section_dir)}
+
+    all_errors: list[str] = []
+    all_warnings: list[str] = []
+    counts: dict[str, int] = {}
+
+    for section_name, filename in recall_mod.SECTION_FILES.items():
+        path = section_dir / filename
+        if not path.exists():
+            all_warnings.append(f"Missing section file: {filename}")
+            counts[section_name] = 0
+            continue
+        bank = recall_mod.parse_memory_file(path)
+        entry_errors, entry_warnings = _validate_bank(bank)
+        all_errors.extend(f"[{filename}] {e}" for e in entry_errors)
+        all_warnings.extend(f"[{filename}] {w}" for w in entry_warnings)
+        counts[section_name] = len(getattr(bank, section_name))
+
+    return {
+        "valid": len(all_errors) == 0,
+        "errors": all_errors,
+        "warnings": all_warnings,
+        "counts": counts,
+        "section_dir": str(section_dir),
     }
 
 
@@ -603,28 +650,158 @@ def suggest_summaries(path: Path) -> dict:
 
 
 def init_user() -> dict:
-    """Create the user memory directory and template file."""
+    """Create the user memory directory, curated master, and section files."""
     path = recall_mod.ensure_user_memory()
+    section_dir = recall_mod.resolve_section_dir("user")
+    created = recall_mod.ensure_section_files(section_dir)
     return {
         "success": True,
         "path": str(path),
+        "section_dir": str(section_dir),
+        "section_files": [str(p) for p in created],
         "created": path.exists(),
     }
 
 
+def migrate(master_path: Path, scope: str) -> dict:
+    """Split a single-file MEMORY.md into per-section files.
+
+    Existing section files are NOT overwritten; only missing entries are
+    appended.  After migration the master is replaced with the curated
+    template (the original is backed up as ``MEMORY.md.bak``).
+    """
+    if not master_path.exists():
+        return {"success": False, "error": "Master MEMORY.md does not exist"}
+
+    bank = recall_mod.parse_memory_file(master_path)
+    if scope == "user":
+        section_dir = master_path.parent
+    else:
+        section_dir = master_path.parent / "memory"
+    section_dir.mkdir(parents=True, exist_ok=True)
+
+    written: dict[str, int] = {}
+    for section_name in recall_mod.SECTION_FILES:
+        items = getattr(bank, section_name)
+        if not items:
+            recall_mod.ensure_section_file(section_dir, section_name)
+            written[section_name] = 0
+            continue
+
+        sf_path = recall_mod.section_file_path(section_dir, section_name)
+        if sf_path.exists():
+            existing_bank = recall_mod.parse_memory_file(sf_path)
+            existing_raws = {entry.raw.strip() for entry in getattr(existing_bank, section_name)}
+        else:
+            existing_raws = set()
+
+        new_entries = [e for e in items if e.raw.strip() not in existing_raws]
+        template = recall_mod.SECTION_TEMPLATES[section_name]
+        if sf_path.exists():
+            content = sf_path.read_text(encoding="utf-8")
+        else:
+            content = template
+
+        for entry in new_entries:
+            content = content.rstrip("\n") + "\n\n" + entry.raw + "\n"
+
+        sf_path.write_text(content, encoding="utf-8")
+        written[section_name] = len(new_entries)
+
+    backup = master_path.parent / (master_path.name + ".bak")
+    master_path.rename(backup)
+    template = (
+        recall_mod.USER_MEMORY_TEMPLATE if scope == "user"
+        else recall_mod.CURATED_MASTER_TEMPLATE
+    )
+    master_path.write_text(template, encoding="utf-8")
+
+    return {
+        "success": True,
+        "backup": str(backup),
+        "section_dir": str(section_dir),
+        "entries_migrated": written,
+    }
+
+
+def curate(scope: str, *, max_world: int = 10, max_beliefs: int = 10,
+           max_summaries: int = 20) -> dict:
+    """Regenerate the curated master MEMORY.md from section files.
+
+    Picks the highest-confidence world knowledge / beliefs and all
+    entity summaries (capped).  Experiences and reflections are omitted
+    from the curated file because they are verbose and temporal.
+    """
+    section_dir = recall_mod.resolve_section_dir(scope)
+    if not recall_mod.has_section_files(section_dir):
+        return {"success": False, "error": "No section files found; nothing to curate"}
+
+    bank = recall_mod.load_memory_from_sections(section_dir)
+
+    lines: list[str] = []
+    title = "# User Memory" if scope == "user" else "# Agent Memory"
+    lines.append(title)
+    lines.append("")
+    lines.append("<!-- Curated subset suitable for inclusion in AGENTS.md.")
+    lines.append("     Full memories are stored in per-section files.")
+    lines.append("     Regenerate with: memory-manage.py curate -->")
+    lines.append("")
+
+    wk = sorted(bank.world_knowledge,
+                key=lambda w: w.confidence if w.confidence is not None else 0,
+                reverse=True)[:max_world]
+    lines.append("## World Knowledge")
+    lines.append("")
+    for w in wk:
+        lines.append(w.raw)
+    lines.append("")
+
+    beliefs = sorted(bank.beliefs,
+                     key=lambda b: b.confidence if b.confidence is not None else 0,
+                     reverse=True)[:max_beliefs]
+    lines.append("## Beliefs")
+    lines.append("")
+    for b in beliefs:
+        lines.append(b.raw)
+    lines.append("")
+
+    lines.append("## Entity Summaries")
+    lines.append("")
+    for es in bank.entity_summaries[:max_summaries]:
+        lines.append(es.raw)
+    lines.append("")
+
+    master = (recall_mod.resolve_user_memory_path() if scope == "user"
+              else recall_mod.resolve_project_memory_path())
+    master.write_text("\n".join(lines), encoding="utf-8")
+
+    return {
+        "success": True,
+        "path": str(master),
+        "counts": {
+            "world_knowledge": len(wk),
+            "beliefs": len(beliefs),
+            "entity_summaries": min(len(bank.entity_summaries), max_summaries),
+        },
+    }
+
+
 def _ensure_memory_file(path: Path, scope_label: str) -> Path:
-    """Create a template memory file when needed."""
+    """Create a template memory file when needed (legacy single-file path)."""
     if path.exists():
         return path
     if scope_label == "user":
         return recall_mod.ensure_user_memory()
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        recall_mod.USER_MEMORY_TEMPLATE.replace("# User Memory", "# Agent Memory"),
-        encoding="utf-8",
-    )
+    path.write_text(recall_mod.CURATED_MASTER_TEMPLATE, encoding="utf-8")
     return path
+
+
+def _ensure_section_file(scope_label: str, section: str) -> Path:
+    """Ensure the section file for *section* exists and return its path."""
+    section_dir = recall_mod.resolve_section_dir(scope_label)
+    return recall_mod.ensure_section_file(section_dir, section)
 
 
 def _insert_entry(content: str, section: str, raw_line: str) -> tuple[bool, Optional[str]]:
@@ -633,6 +810,8 @@ def _insert_entry(content: str, section: str, raw_line: str) -> tuple[bool, Opti
         "experiences": "## Experiences",
         "world_knowledge": "## World Knowledge",
         "beliefs": "## Beliefs",
+        "reflections": "## Reflections",
+        "entity_summaries": "## Entity Summaries",
     }
     header = section_headers[section]
 
@@ -690,8 +869,23 @@ def append_entry(
     updated: Optional[str] = None,
     cross_scope_path: Optional[Path] = None,
 ) -> dict:
-    """Append a new entry after safety, duplicate, and format checks."""
-    path = _ensure_memory_file(path, scope_label)
+    """Append a new entry to the per-section file after safety checks.
+
+    *path* is used as a fallback when section files are unavailable
+    (legacy single-file mode).  When section files exist the write
+    targets the appropriate ``<section>.md`` file instead.
+    """
+    section_dir = recall_mod.resolve_section_dir(scope_label)
+    path_is_explicit = path.exists()
+    if path_is_explicit:
+        local_section_dir = path.parent / "memory" if path.name == "MEMORY.md" else path.parent
+        if recall_mod.has_section_files(local_section_dir):
+            path = recall_mod.ensure_section_file(local_section_dir, section)
+    elif recall_mod.has_section_files(section_dir):
+        path = recall_mod.ensure_section_file(section_dir, section)
+    else:
+        path = _ensure_memory_file(path, scope_label)
+
     screening = screen_text(text)
     if not screening["safe"]:
         return {
@@ -1004,15 +1198,43 @@ def delete_entry(path: Path, section: str, index: int) -> dict:
     }
 
 
+def _resolve_section_file_for_write(scope: str, section: str,
+                                     file_override: Optional[Path] = None) -> Path:
+    """Return the file to write *section* entries to.
+
+    When ``--file`` is given, use it directly.
+    Otherwise prefer the per-section file; fall back to legacy master.
+    """
+    if file_override:
+        return file_override
+    section_dir = recall_mod.resolve_section_dir(scope)
+    if recall_mod.has_section_files(section_dir):
+        return recall_mod.ensure_section_file(section_dir, section)
+    return resolve_path(scope)
+
+
+def _resolve_section_file_for_read(scope: str, section: str,
+                                    file_override: Optional[Path] = None) -> Path:
+    """Return the file to read *section* entries from."""
+    if file_override:
+        return file_override
+    section_dir = recall_mod.resolve_section_dir(scope)
+    sf = recall_mod.section_file_path(section_dir, section)
+    if sf.exists():
+        return sf
+    return resolve_path(scope)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Memory management operations")
     parser.add_argument("--file", type=Path, default=None,
-                        help="Explicit path to MEMORY.md (overrides --scope)")
+                        help="Explicit path to a memory file (overrides --scope)")
     parser.add_argument("--scope", choices=["user", "project"], default=None,
                         help="Memory scope (default: project for validate/suggest, user for writes)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("validate", help="Validate MEMORY.md structure")
+    sub.add_parser("validate-sections", help="Validate per-section files")
 
     dup_parser = sub.add_parser("check-duplicate", help="Check for near-duplicates")
     dup_parser.add_argument("--section", required=True,
@@ -1039,7 +1261,7 @@ def main():
 
     sub.add_parser("suggest-summaries", help="Suggest entities needing summaries")
     sub.add_parser("check-conflicts", help="Detect contradictions between belief pairs")
-    sub.add_parser("init-user", help="Create user memory directory and template")
+    sub.add_parser("init-user", help="Create user memory directory, master, and section files")
 
     find_parser = sub.add_parser("find-matches", help="Fuzzy-search memories for forget operation")
     find_parser.add_argument("--query", required=True, help="Fuzzy description of the memory to find")
@@ -1073,6 +1295,13 @@ def main():
     promote_parser.add_argument("--allow-project-promotion", action="store_true",
                                 help="Required explicit approval before writing to project memory")
 
+    sub.add_parser("migrate", help="Split a single-file MEMORY.md into per-section files")
+
+    curate_parser = sub.add_parser("curate", help="Regenerate curated master from section files")
+    curate_parser.add_argument("--max-world", type=int, default=10)
+    curate_parser.add_argument("--max-beliefs", type=int, default=10)
+    curate_parser.add_argument("--max-summaries", type=int, default=20)
+
     args = parser.parse_args()
 
     def get_path(default_scope: str = "project") -> Path:
@@ -1081,45 +1310,120 @@ def main():
         scope = args.scope or default_scope
         return resolve_path(scope)
 
+    def effective_scope(default: str = "user") -> str:
+        return args.scope or default
+
     if args.command == "validate":
         result = validate(get_path("project"))
+    elif args.command == "validate-sections":
+        result = validate_sections(effective_scope("project"))
     elif args.command == "check-duplicate":
-        target_path = get_path("user")
+        scope = effective_scope("user")
+        target_path = _resolve_section_file_for_read(scope, args.section, args.file)
         extra: Optional[list[tuple[str, Path]]] = None
         if getattr(args, "cross_scope", False):
-            other_scope = "project" if (args.scope or "user") == "user" else "user"
-            other_path = resolve_path(other_scope)
+            other_scope = "project" if scope == "user" else "user"
+            other_path = _resolve_section_file_for_read(other_scope, args.section)
             if other_path.exists():
                 extra = [(other_scope, other_path)]
         result = check_duplicate(target_path, args.section, args.candidate,
                                   extra_paths=extra)
     elif args.command == "update-confidence":
-        result = update_confidence(get_path("user"), args.section, args.index, args.delta)
+        scope = effective_scope("user")
+        target = _resolve_section_file_for_write(scope, args.section, args.file)
+        result = update_confidence(target, args.section, args.index, args.delta)
     elif args.command == "extract-entities":
         result = extract_entities(args.text)
     elif args.command == "screen-text":
         result = screen_text(args.text)
     elif args.command == "prune-beliefs":
-        result = prune_beliefs(get_path("user"), args.threshold)
+        scope = effective_scope("user")
+        target = _resolve_section_file_for_read(scope, "beliefs", args.file)
+        result = prune_beliefs(target, args.threshold)
     elif args.command == "suggest-summaries":
-        result = suggest_summaries(get_path("user"))
+        scope = effective_scope("user")
+        master, sec_dir = recall_mod.resolve_memory_sources(scope)
+        bank = recall_mod.load_memory(master, sec_dir)
+        entity_index = recall_mod.collect_all_entities(bank)
+        entity_counts: dict[str, int] = {}
+        for exp in bank.experiences:
+            for e in exp.entities:
+                entity_counts[e] = entity_counts.get(e, 0) + 1
+        for wf in bank.world_knowledge:
+            for e in wf.entities:
+                entity_counts[e] = entity_counts.get(e, 0) + 1
+        for b in bank.beliefs:
+            for e in b.entities:
+                entity_counts[e] = entity_counts.get(e, 0) + 1
+        existing_summaries = {es.name.lower() for es in bank.entity_summaries}
+        suggestions = []
+        for entity, count in sorted(entity_counts.items(), key=lambda x: -x[1]):
+            if count >= 3 and entity.lower() not in existing_summaries:
+                suggestions.append({
+                    "entity": entity,
+                    "mention_count": count,
+                    "sections": entity_index.get(entity, []),
+                })
+        result = {
+            "suggestions": suggestions,
+            "existing_summary_count": len(bank.entity_summaries),
+        }
     elif args.command == "check-conflicts":
-        result = check_conflicts(get_path("user"))
+        scope = effective_scope("user")
+        target = _resolve_section_file_for_read(scope, "beliefs", args.file)
+        result = check_conflicts(target)
     elif args.command == "init-user":
         result = init_user()
     elif args.command == "find-matches":
-        result = find_matches(get_path("user"), args.query, args.threshold)
+        scope = effective_scope("user")
+        master, sec_dir = recall_mod.resolve_memory_sources(scope)
+        bank = recall_mod.load_memory(master, sec_dir)
+        from types import SimpleNamespace
+        fake_path = sec_dir / "__combined__"
+        result_matches = []
+        sections_list: list[tuple[str, list]] = [
+            ("experiences", bank.experiences),
+            ("world_knowledge", bank.world_knowledge),
+            ("beliefs", bank.beliefs),
+            ("reflections", bank.reflections),
+        ]
+        for section_name, items in sections_list:
+            for i, item in enumerate(items):
+                sim = similarity(args.query, item.text)
+                if sim >= args.threshold:
+                    entry: dict = {
+                        "section": section_name,
+                        "index": i,
+                        "similarity": round(sim, 3),
+                        "text": item.text,
+                        "raw": item.raw,
+                    }
+                    if hasattr(item, "date") and item.date:
+                        entry["date"] = item.date
+                    if hasattr(item, "confidence") and item.confidence is not None:
+                        entry["confidence"] = item.confidence
+                    result_matches.append(entry)
+        result_matches.sort(key=lambda m: m["similarity"], reverse=True)
+        result = {
+            "query": args.query,
+            "threshold": args.threshold,
+            "match_count": len(result_matches),
+            "matches": result_matches,
+        }
     elif args.command == "delete-entry":
-        result = delete_entry(get_path("user"), args.section, args.index)
+        scope = effective_scope("user")
+        target = _resolve_section_file_for_write(scope, args.section, args.file)
+        result = delete_entry(target, args.section, args.index)
     elif args.command == "append-entry":
-        target_path = get_path(args.scope)
-        other_scope = "project" if args.scope == "user" else "user"
+        scope = args.scope or "user"
+        target_path = get_path(scope)
+        other_scope = "project" if scope == "user" else "user"
         entity_list = [e.strip() for e in args.entities.split(",") if e.strip()]
         result = append_entry(
             target_path,
             section=args.section,
             text=args.text,
-            scope_label=args.scope,
+            scope_label=scope,
             date=args.date,
             context=args.context,
             entities=entity_list,
@@ -1137,6 +1441,15 @@ def main():
             args.index,
             allow_project_promotion=args.allow_project_promotion,
         )
+    elif args.command == "migrate":
+        scope = effective_scope("project")
+        result = migrate(get_path(scope), scope)
+    elif args.command == "curate":
+        scope = effective_scope("project")
+        result = curate(scope,
+                        max_world=args.max_world,
+                        max_beliefs=args.max_beliefs,
+                        max_summaries=args.max_summaries)
     else:
         parser.error(f"Unknown command: {args.command}")
         return
