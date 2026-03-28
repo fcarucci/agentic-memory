@@ -36,7 +36,7 @@ It is **not** a faithful reproduction of every detail in the paper; it is a **pr
 
 Requirements: **Python 3** available to the host that runs the skill’s stdlib helpers.
 
-**Operators** only need to place this skill where the product loads skills from. **Routine memory use** (recall, remember, reflect, etc.) happens when the **agent** follows **`SKILL.md`**—you do not invoke helpers yourself. See [Using memory](#using-memory). **Configuration** and **Tests** below are for **integrators and maintainers** only. **User** memory under `~/.agents/memory/` is created automatically the first time recall or a write touches user scope (no manual initialization).
+**Operators** only need to place this skill where the product loads skills from. **Routine memory use** (recall, remember, reflect, etc.) happens when the **agent** follows **`SKILL.md`**—you do not invoke helpers yourself. After [Install](#install), see [Using memory](#using-memory) for **phrases**, workflow, and wiring. **Configuration** and **Tests** below are for **integrators and maintainers** only. **User** memory under `~/.agents/memory/` is created automatically the first time recall or a write touches user scope (no manual initialization).
 
 ### Cursor
 
@@ -125,10 +125,38 @@ Writes go to the **per-section files**. The curated master is regenerated automa
 
 - **Orient at session start:** rely on your product’s rules (or ask the agent) to load memory context the way **`SKILL.md`** describes under *Automatic memory retrieval*—not by running recall commands yourself.
 - **Before deep work on a topic:** ask what it remembers about that topic (or equivalent); the skill’s recall workflow applies.
-- **Save something for later:** use the trigger phrases in **`SKILL.md`** (e.g. “remember this”, “don’t forget …”); the agent runs the guarded retain path and subagent rules defined there.
+- **Save something for later:** use the **phrases** below (mirrored from **`SKILL.md`**); the agent runs the guarded retain path and subagent rules defined there.
 - **Project vs user scope, promotion, reflection, maintenance:** all dispatch tables and procedures live in **`SKILL.md`** and **`ref/`**—still no direct script use on your side.
 
 The helpers under **`skills/memory/scripts/`** exist so the **agent** (and integrators) can implement those workflows. What they expose is summarized in **`ref/scripts.md`**; that file does not list copy-paste shell—follow **`SKILL.md`** for procedure.
+
+### Phrases — how to use memory in chat
+
+Talk to your agent in **plain language**. The agent should load **`SKILL.md`** and match your message to an **action** (Step 1 dispatch table). You do **not** run the Python helpers yourself for day-to-day memory work.
+
+#### How to use these phrases
+
+1. **Match intent, not exact wording.** The table lists typical phrases; paraphrases with the same meaning should route to the same action. When in doubt, be explicit (“remember this in the project”, “show me what you recall about Postgres”).
+2. **Default scope is user memory** (`~/.agents/memory/`). Say **“remember this in the project”** or **“promote to the project”** when you want team-shared memory under `<repo>/memory/`.
+3. **Closure after real work:** Phrases like *we’re done* or *thanks, we’re done* (when you are **ending** a thread, not just saying thanks mid-task) should trigger a **task-done sweep**: the agent asks what it learned and stores worthwhile lessons with **remember** subagents. See **`ref/task-done.md`**.
+4. **Subagent actions** (remember, reflect, maintain, promote, and each lesson in a task-done sweep) require the **host** to spawn a subagent that follows the skill—inline improvisation is a skill violation for those rows.
+5. **Authoritative list:** If this table and **`SKILL.md`** ever disagree, follow **`SKILL.md`**.
+
+#### Phrases → actions
+
+| You say (examples) | Action | Subagent? |
+|--------------------|--------|-----------|
+| “Remember this”, “Don’t forget”, “Note that”, “Keep in mind” | **remember** | Yes |
+| “We’re done”, “We are done”, “That’s all”, “Task is done”, “We’re finished”, “That wraps it up”, “Nothing else”, “All set”, “Thanks, we’re done”, and other **task / conversation closure** after real work (see **`ref/task-done.md`**) | **task-done sweep** | Yes — one **remember** per lesson |
+| “What do you remember?”, “Show me memories”, “What are your last memories?” | **show** | No |
+| “What do you know about X?”, “Any memories about Y?” | **recall** | No |
+| “Reflect on your memory/memories”, “Reflect on what you remember”, “Dream”, “Time for a reflection”, “Review your beliefs”, “Memory reflection”, “Do a memory reflect” | **reflect** | Yes — dedicated **reflect** only |
+| “Maintain memory”, “Clean up memory”, “Prune stale memories”, “Memory hygiene” | **maintain** | Yes |
+| “Curate your memories”, “Curate my memories”, “Curate memory”, “Memory curate”, “Thin MEMORY.md”, “Shrink MEMORY.md”, “Regenerate the memory index” | **curate** | No |
+| “Forget about X”, “Delete that memory”, “Remove the belief about Y” | **forget** | No |
+| “Promote this to the project” | **promote** | Yes |
+
+**Automatic behavior (no special phrase required):** At **session start** the agent should load a **digest** of memory; **before a task** it should run **targeted recall** when useful; **after completing work** (and in many product workflows **before commit**) it should run the same **learnings sweep** as task-done. Details: **`SKILL.md`** (*Automatic memory retrieval* / *Automatic memory capture*).
 
 ### Recommended agent wiring (`AGENTS.md`)
 
