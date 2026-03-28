@@ -4,8 +4,10 @@ description: >
   Persistent memory system for the agent. Two-tier storage: user
   (~/.agents/memory/MEMORY.md) and project (<repo>/MEMORY.md).
   Five memory networks: experiences, world knowledge, beliefs,
-  reflections, entity summaries. All reflect workflow execution runs
-  inside a subagent (reflect-only or remember+auto-reflect)—never on the
+  reflections, entity summaries. Task closure ("we're done", etc.)
+  triggers a mandatory task-done memory sweep (remember subagents per
+  ref/task-done.md). All reflect workflow execution runs inside a
+  subagent (reflect-only or remember+auto-reflect)—never on the
   host/orchestrator turn.
 ---
 
@@ -19,6 +21,7 @@ request to an action, then follow only that action's instructions.
 | User says | Action | Subagent? | Read these refs |
 |-----------|--------|-----------|----------------|
 | "Remember this", "Don't forget", "Note that", "Keep in mind" | **remember** | **YES — spawn subagent** | `ref/format.md` + `ref/retain.md` |
+| "We're done", "We are done", "That's all", "Task is done", "We're finished", "That wraps it up", "Nothing else", "All set", "Thanks, we're done" (and other **task / conversation closure** after real work — see `ref/task-done.md`) | **task-done sweep** | **YES — one `remember` subagent per lesson** | `ref/task-done.md` + `ref/retain.md` |
 | "What do you remember?", "Show me memories", "What are your last memories?" | **show** | No | `ref/recall.md` |
 | "What do you know about X?", "Any memories about Y?" | **recall** | No | `ref/recall.md` |
 | "Reflect on your memory", "Reflect on your memories", "Reflect on what you remember", "Dream", "Time for a reflection", "Review your beliefs", "Memory reflection", "Do a memory reflect" | **reflect** | **YES — dedicated subagent ONLY (host never runs reflect)** | `ref/reflect.md` + `ref/reflect-techniques.md` + `ref/profile.md` |
@@ -78,6 +81,18 @@ do not substitute your own analysis for the subagent’s pass.
 **Same non-negotiable pattern** applies to **maintain** and **promote**:
 never replace a required subagent with an inline "I'll just read the
 files" shortcut; see the Subagent? column in the table above.
+
+**Critical rule (task closure / task-done sweep):** When the user's message
+matches **task-done sweep** in the table — or **session-end review** below
+(thanks, goodbye, that's all as **closure** after substantive work) — you
+**must** run the **remember-what-you-learned** sequence in **`ref/task-done.md`**
+**before** ending the turn with only pleasantries. Ask what you learned;
+spawn a **`remember` subagent for each** lesson worth keeping; report what
+was remembered (or that nothing met the bar). **Do not** skip this because
+the user sounded informal ("thanks, we're done"). If the thread had **no**
+substantive work, you may state that nothing needed capture after the
+internal check. Optional **reflect** subagent after substantial sessions
+per **`ref/task-done.md`**.
 
 ### How to spawn a remember subagent
 
@@ -200,7 +215,8 @@ If no memories match, proceed normally.
 
 ### Post-task sweep (after every completed task)
 
-After completing any task — **before committing** — ask:
+After completing any task — **before committing** — follow **`ref/task-done.md`**
+(the **task-done sweep**): ask:
 
 > "What did I learn that would be useful in a future session?"
 
@@ -212,19 +228,26 @@ each lesson, then **tell the user what was remembered**:
 > - [workflow] Running the combined dev command avoids CSS rebuild issues.
 
 This is **not optional** — it is part of the mandatory task completion
-sequence (see `docs/agent-workflows/DANEEL_WORKFLOW.md`).
+sequence (see `docs/agent-workflows/DANEEL_WORKFLOW.md`). The user saying
+**we're done** or equivalent is an explicit trigger for the same sweep — see
+**Step 1** table (**task-done sweep**) and **Critical rule (task closure)**.
 
 ### Session-end review
 
 When the conversation is winding down ("thanks", "goodbye", "that's
-all", or task done with no follow-up):
+all", or task done with no follow-up) **after substantive work**, this is
+the **same** sweep as **`ref/task-done.md`** — not optional chit-chat:
 
 1. Scan for uncaptured lessons, surprises, decisions, or workarounds.
 2. **Spawn a memory subagent** with `action: remember` for each item.
-3. **Tell the user what was remembered.**
+3. **Tell the user what was remembered** (or that nothing met the bar).
 4. If the session was substantial, also spawn a **dedicated**
    **`action: reflect` subagent** (never run reflect from the host turn;
    see **Invariant: reflection always runs inside a subagent**).
+
+Mid-thread "thanks" without closure intent does **not** cancel the
+requirement when the user later signals **done**; see **`ref/task-done.md`**
+for disambiguation.
 
 ## Subagent parameters (for write operations)
 
@@ -331,3 +354,10 @@ paths, counts, and any **migrate** that ran.
 ### Forget (run directly)
 
 See `ref/forget.md` for the full workflow.
+
+### Task-done / session-end (memory sweep)
+
+When the user signals **task completion** or **conversation closure** after
+real work (see **Step 1** table: **task-done sweep**), follow **`ref/task-done.md`**
+end-to-end: internal learnings question → one **`remember` subagent per
+lesson** → report to user → optional **`reflect`** if substantial.

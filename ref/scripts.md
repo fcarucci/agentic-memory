@@ -18,6 +18,7 @@ Supports **validation**, **screening**, **guarded append** (including optional *
 - **`ref/forget.md`** — forget
 - **`ref/promote.md`** — promote
 - **`ref/curate.md`** — manual **curate** (thin `MEMORY.md`; host-run, no subagent)
+- **`ref/task-done.md`** — **task-done sweep** / session-end (remember what you learned)
 - **`ref/config.md`** — `memory-skill.config.json`
 
 ## Automated tests
