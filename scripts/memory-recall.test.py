@@ -189,6 +189,32 @@ class TestRecall(unittest.TestCase):
         result = recall.recall(self.bank, entity="dev-server", cross_section=True)
         self.assertIn("entity_summaries", result)
 
+    def test_fuzzy_entity_fallback(self):
+        result = recall.recall(self.bank, entity="integration test", cross_section=True)
+        self.assertIn("experiences", result)
+        self.assertTrue(any("integration test suite hung indefinitely" in item for item in result["experiences"]))
+
+    def test_fuzzy_entity_fallback_avoids_shared_stem_noise(self):
+        noisy_path = self.tmp / "noisy.md"
+        noisy_memory = SAMPLE_MEMORY.replace(
+            "- {entities: api-gateway, auth} The API gateway config lives at ~/.config/myapp/config.json with host and auth_token fields. (confidence: 0.85, sources: 2)\n",
+            "- {entities: api-gateway, auth} The API gateway config lives at ~/.config/myapp/config.json with host and auth_token fields. (confidence: 0.85, sources: 2)\n"
+            "- {entities: withings-integration} The Withings integration facade coordinates OAuth helpers. (confidence: 0.80, sources: 1)\n",
+        )
+        noisy_path.write_text(noisy_memory, encoding="utf-8")
+        bank = recall.parse_memory_file(noisy_path)
+
+        result = recall.recall(bank, entity="integration test", cross_section=True)
+        flattened = "\n".join(item for items in result.values() for item in items)
+
+        self.assertIn("integration test suite hung indefinitely", flattened)
+        self.assertNotIn("Withings integration facade", flattened)
+
+    def test_fuzzy_topic_fallback(self):
+        result = recall.recall(self.bank, keyword="hot reload workflow")
+        self.assertIn("experiences", result)
+        self.assertTrue(any("combined dev command" in item for item in result["experiences"]))
+
 
 class TestStats(unittest.TestCase):
     def setUp(self):

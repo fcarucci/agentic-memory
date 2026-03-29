@@ -45,6 +45,8 @@ Recall searches **both** user and project memory by default, tagging results wit
 | Statistics | `--stats` or `--stats --scope user` |
 | Token budget (approx.) | `--keyword "<text>" --budget N --json` |
 
+The recall helper deterministically handles retrieval strategy internally. Callers provide the query shape; the helper performs direct matching first and, when needed, falls back to broader matching while preserving the same output format.
+
 When to use recall vs. full read:
 
 - < 20 total memories: reading the full file is fine  

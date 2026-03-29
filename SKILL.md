@@ -201,15 +201,13 @@ At the start of every session, load the memory digest into context using the **r
 
 ### Pre-task recall
 
-Before starting any task, run a targeted recall against the task topic using the **recall helper** per **`ref/recall.md`** (*Recall*): entity and/or keyword search, cross-section as appropriate, JSON output when useful.
+Before starting any task, run a targeted recall against the task topic using the **recall helper** per **`ref/recall.md`** (*Recall*): topic and/or entity search, cross-section as appropriate, JSON output when useful.
 
 | User says | Recall shape (see `ref/recall.md`) |
 |-----------|-----------------------------------|
 | "Fix the integration tests" | entity `integration-tests`, cross-section |
 | "Work on the API gateway" | entity `api-gateway`, cross-section |
 | "The build is failing" | keyword `build`, cross-section |
-
-If no memories match, proceed normally.
 
 ## Automatic memory capture
 

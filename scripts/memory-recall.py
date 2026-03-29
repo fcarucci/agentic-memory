@@ -17,6 +17,7 @@ import argparse
 import json
 import re
 import sys
+from difflib import SequenceMatcher
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -213,6 +214,14 @@ USER_MEMORY_DIR = DEFAULT_USER_MEMORY_DIR
 USER_MEMORY_PATH = DEFAULT_USER_MEMORY_PATH
 
 SCOPES = ("user", "project", "both")
+STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "because", "but", "by", "for",
+    "from", "if", "in", "into", "is", "it", "its", "of", "on", "or", "that",
+    "the", "their", "then", "there", "these", "this", "to", "was", "were",
+    "with",
+})
+FUZZY_RECALL_THRESHOLD = 0.55
+FUZZY_ENTITY_THRESHOLD = 0.72
 
 # ---------------------------------------------------------------------------
 # Loading helpers
@@ -633,8 +642,59 @@ def collect_all_entities(bank: MemoryBank) -> dict[str, list[str]]:
     return {k: sorted(v) for k, v in sorted(index.items())}
 
 
-def recall(
-    bank: MemoryBank,
+def normalize_for_comparison(text: str) -> str:
+    """Normalize free text for forgiving topic/entity comparison."""
+    text = strip_metadata(text)
+    text = text.lower()
+    text = re.sub(r"[_\-]", " ", text)
+    text = re.sub(r"[^\w\s]", " ", text)
+    words = [w for w in text.split() if w not in STOPWORDS]
+    return " ".join(words)
+
+
+def similarity(a: str, b: str) -> float:
+    """Compute forgiving similarity for fuzzy topic/entity recall."""
+    na = normalize_for_comparison(a)
+    nb = normalize_for_comparison(b)
+    if not na or not nb:
+        return 0.0
+    seq_ratio = SequenceMatcher(None, na, nb).ratio()
+    tokens_a = set(na.split())
+    tokens_b = set(nb.split())
+    intersection = len(tokens_a & tokens_b)
+    union = tokens_a | tokens_b
+    jaccard = intersection / len(union) if union else 0.0
+    min_size = min(len(tokens_a), len(tokens_b))
+    overlap = intersection / min_size if min_size else 0.0
+    return max(seq_ratio, jaccard, overlap)
+
+
+def _best_fuzzy_score(query: str, candidates: list[str]) -> float:
+    best = 0.0
+    for candidate in candidates:
+        score = similarity(query, candidate)
+        if score > best:
+            best = score
+    return best
+
+
+def _resolve_fuzzy_entity_targets(bank: "MemoryBank", query: str) -> list[str]:
+    """Return likely entity names for a fuzzy entity query."""
+    query_norm = normalize_for_comparison(query)
+    if not query_norm:
+        return []
+
+    scored: list[tuple[float, str]] = []
+    for entity_name in collect_all_entities(bank):
+        score = similarity(query_norm, entity_name)
+        if score >= FUZZY_ENTITY_THRESHOLD:
+            scored.append((score, entity_name))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [entity_name for _, entity_name in scored]
+
+
+def _direct_recall(
+    bank: "MemoryBank",
     *,
     keyword: Optional[str] = None,
     entity: Optional[str] = None,
@@ -644,12 +704,8 @@ def recall(
     cross_section: bool = False,
     budget: Optional[int] = None,
 ) -> dict:
-    """Filter memories by keyword, entity, date, or section.
-
-    If cross_section is True and entity is specified, returns all
-    memories across all sections that mention that entity.
-    """
-    results: dict = {
+    """Direct recall using literal keyword and entity matching."""
+    results: dict[str, list[str]] = {
         "experiences": [],
         "world_knowledge": [],
         "beliefs": [],
@@ -665,61 +721,219 @@ def recall(
 
     since_date = _parse_date(since) if since else None
     until_date = _parse_date(until) if until else None
-    kw_lower = keyword.lower() if keyword else None
-    ent_lower = entity.lower() if entity else None
 
     if "experiences" in sections_to_search:
         for exp in bank.experiences:
-            if kw_lower and kw_lower not in exp.text.lower() and kw_lower not in exp.raw.lower():
-                continue
-            if ent_lower and not _entity_matches(exp.entities, ent_lower):
-                continue
             if since_date and exp.date and _parse_date(exp.date) < since_date:
                 continue
             if until_date and exp.date and _parse_date(exp.date) > until_date:
                 continue
+            if keyword:
+                kw_lower = keyword.lower()
+                if kw_lower not in exp.text.lower() and kw_lower not in exp.raw.lower():
+                    continue
+            if entity:
+                if not _entity_matches(exp.entities, entity.lower()):
+                    continue
             results["experiences"].append(exp.raw)
 
     if "world_knowledge" in sections_to_search:
         for wf in bank.world_knowledge:
-            if kw_lower and kw_lower not in wf.text.lower() and kw_lower not in wf.raw.lower():
-                continue
-            if ent_lower and not _entity_matches(wf.entities, ent_lower):
-                continue
+            if keyword:
+                kw_lower = keyword.lower()
+                if kw_lower not in wf.text.lower() and kw_lower not in wf.raw.lower():
+                    continue
+            if entity:
+                if not _entity_matches(wf.entities, entity.lower()):
+                    continue
             results["world_knowledge"].append(wf.raw)
 
     if "beliefs" in sections_to_search:
         for b in bank.beliefs:
-            if kw_lower and kw_lower not in b.text.lower() and kw_lower not in b.raw.lower():
-                continue
-            if ent_lower and not _entity_matches(b.entities, ent_lower):
-                continue
+            if keyword:
+                kw_lower = keyword.lower()
+                if kw_lower not in b.text.lower() and kw_lower not in b.raw.lower():
+                    continue
+            if entity:
+                if not _entity_matches(b.entities, entity.lower()):
+                    continue
             results["beliefs"].append(b.raw)
 
     if "reflections" in sections_to_search:
         for r in bank.reflections:
-            if kw_lower and kw_lower not in r.text.lower() and kw_lower not in r.raw.lower():
-                continue
-            if ent_lower and not _entity_matches(r.entities, ent_lower):
-                continue
             if since_date and r.date and _parse_date(r.date) < since_date:
                 continue
             if until_date and r.date and _parse_date(r.date) > until_date:
                 continue
+            if keyword:
+                kw_lower = keyword.lower()
+                if kw_lower not in r.text.lower() and kw_lower not in r.raw.lower():
+                    continue
+            if entity:
+                if not _entity_matches(r.entities, entity.lower()):
+                    continue
             results["reflections"].append(r.raw)
 
     if "entity_summaries" in sections_to_search:
         for es in bank.entity_summaries:
-            if kw_lower and kw_lower not in es.text.lower() and kw_lower not in es.name.lower():
-                continue
-            if ent_lower and ent_lower not in es.name.lower():
-                continue
+            if keyword:
+                kw_lower = keyword.lower()
+                if kw_lower not in es.text.lower() and kw_lower not in es.name.lower():
+                    continue
+            if entity:
+                if entity.lower() not in es.name.lower():
+                    continue
             results["entity_summaries"].append(es.raw)
 
     filtered = {k: v for k, v in results.items() if v}
     if budget is not None:
         filtered = _apply_budget(filtered, budget)
     return filtered
+
+
+def _fallback_recall(
+    bank: "MemoryBank",
+    *,
+    keyword: Optional[str] = None,
+    entity: Optional[str] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    section: Optional[str] = None,
+    cross_section: bool = False,
+    budget: Optional[int] = None,
+) -> dict:
+    """Fallback recall when direct matching misses."""
+    if entity:
+        targets = _resolve_fuzzy_entity_targets(bank, entity)
+        if not targets:
+            return {}
+
+        results: dict[str, list[str]] = {}
+        seen: dict[str, set[str]] = {}
+        for target in targets:
+            target_results = _direct_recall(
+                bank,
+                entity=target,
+                since=since,
+                until=until,
+                section=section,
+                cross_section=cross_section,
+                budget=None,
+            )
+            for section_name, items in target_results.items():
+                bucket = results.setdefault(section_name, [])
+                section_seen = seen.setdefault(section_name, set())
+                for item in items:
+                    if item in section_seen:
+                        continue
+                    section_seen.add(item)
+                    bucket.append(item)
+
+        filtered = {k: v for k, v in results.items() if v}
+        if budget is not None:
+            filtered = _apply_budget(filtered, budget)
+        return filtered
+
+    results: dict[str, list[str]] = {
+        "experiences": [],
+        "world_knowledge": [],
+        "beliefs": [],
+        "reflections": [],
+        "entity_summaries": [],
+    }
+    query = entity or keyword or ""
+    if not normalize_for_comparison(query):
+        return {}
+
+    sections_to_search = SECTION_NAMES
+    if section and not cross_section:
+        sections_to_search = (section,)
+    if cross_section and entity:
+        sections_to_search = SECTION_NAMES
+
+    since_date = _parse_date(since) if since else None
+    until_date = _parse_date(until) if until else None
+
+    def matches_score(candidates: list[str]) -> bool:
+        return _best_fuzzy_score(query, candidates) >= FUZZY_RECALL_THRESHOLD
+
+    if "experiences" in sections_to_search:
+        for exp in bank.experiences:
+            if since_date and exp.date and _parse_date(exp.date) < since_date:
+                continue
+            if until_date and exp.date and _parse_date(exp.date) > until_date:
+                continue
+            if matches_score([exp.text, exp.raw, *exp.entities]):
+                results["experiences"].append(exp.raw)
+
+    if "world_knowledge" in sections_to_search:
+        for wf in bank.world_knowledge:
+            if matches_score([wf.text, wf.raw, *wf.entities]):
+                results["world_knowledge"].append(wf.raw)
+
+    if "beliefs" in sections_to_search:
+        for b in bank.beliefs:
+            if matches_score([b.text, b.raw, *b.entities]):
+                results["beliefs"].append(b.raw)
+
+    if "reflections" in sections_to_search:
+        for r in bank.reflections:
+            if since_date and r.date and _parse_date(r.date) < since_date:
+                continue
+            if until_date and r.date and _parse_date(r.date) > until_date:
+                continue
+            if matches_score([r.text, r.raw, *r.entities]):
+                results["reflections"].append(r.raw)
+
+    if "entity_summaries" in sections_to_search:
+        for es in bank.entity_summaries:
+            if matches_score([es.name, es.text, es.raw]):
+                results["entity_summaries"].append(es.raw)
+
+    filtered = {k: v for k, v in results.items() if v}
+    if budget is not None:
+        filtered = _apply_budget(filtered, budget)
+    return filtered
+
+
+def recall(
+    bank: MemoryBank,
+    *,
+    keyword: Optional[str] = None,
+    entity: Optional[str] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    section: Optional[str] = None,
+    cross_section: bool = False,
+    budget: Optional[int] = None,
+) -> dict:
+    """Search memories via one deterministic entry point.
+
+    The helper tries direct matching first, then broader fallback matching
+    when the direct pass returns no results.
+    """
+    direct = _direct_recall(
+        bank,
+        keyword=keyword,
+        entity=entity,
+        since=since,
+        until=until,
+        section=section,
+        cross_section=cross_section,
+        budget=budget,
+    )
+    if direct or not (keyword or entity):
+        return direct
+    return _fallback_recall(
+        bank,
+        keyword=keyword,
+        entity=entity,
+        since=since,
+        until=until,
+        section=section,
+        cross_section=cross_section,
+        budget=budget,
+    )
 
 
 def _apply_budget(results: dict, budget: int) -> dict:

@@ -6,7 +6,7 @@ This skill ships **stdlib Python helpers** next to this folder. They implement t
 
 ## Recall helper
 
-Supports **digest** and **structured search** (keywords, entities, scopes, dates, sections, JSON output, stats, token budget). Full flag and behavior reference: **`ref/recall.md`**.
+Supports **digest** and **structured search** (topics, keywords, entities, scopes, dates, sections, JSON output, stats, token budget). The helper deterministically handles direct matching first and fallback matching internally. Full flag and behavior reference: **`ref/recall.md`**.
 
 ## Management helper
 
