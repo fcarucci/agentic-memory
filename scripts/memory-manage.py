@@ -785,11 +785,17 @@ def validate(path: Path) -> dict:
     errors: list[str] = []
     warnings: list[str] = []
 
-    valid_headings = ("# Agent Memory", "# User Memory",
-                       "# Daneel Agent Memory", "# Daneel User Memory")
+    valid_headings = (
+        "# Agentic Memory",
+        "# Agent Memory",  # legacy
+        "# User Memory",
+        "# Daneel Agentic Memory",
+        "# Daneel Agent Memory",  # legacy
+        "# Daneel User Memory",
+    )
     if not any(h in content for h in valid_headings):
         errors.append(
-            "Missing top-level heading (expected '# Agent Memory' or '# User Memory')"
+            "Missing top-level heading (expected '# Agentic Memory' or '# User Memory')"
         )
 
     is_curated = _CURATED_MASTER_MARKER in content
@@ -1355,7 +1361,7 @@ def curate(scope: str, *, max_world: int = 5, max_beliefs: int = 5,
     bank = recall_mod.load_memory_from_sections(section_dir)
 
     lines: list[str] = []
-    title = "# User Memory" if scope == "user" else "# Agent Memory"
+    title = "# User Memory" if scope == "user" else "# Agentic Memory"
     lines.append(title)
     lines.append("")
     lines.append("<!-- Curated subset suitable for inclusion in AGENTS.md.")

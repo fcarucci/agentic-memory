@@ -20,7 +20,7 @@ os.environ["MEMORY_SKILL_DISABLE_HOST_INFERENCE"] = "1"
 
 
 SAMPLE_MEMORY = """\
-# Agent Memory
+# Agentic Memory
 
 ## Experiences
 
@@ -81,7 +81,7 @@ class TestResolveProjectMemoryPath(unittest.TestCase):
             deep = Path(td) / "a" / "b"
             deep.mkdir(parents=True)
             mem = deep / "MEMORY.md"
-            mem.write_text("# Agent Memory\n\n## Experiences\n", encoding="utf-8")
+            mem.write_text("# Agentic Memory\n\n## Experiences\n", encoding="utf-8")
             old = os.getcwd()
             try:
                 os.chdir(deep)
@@ -250,7 +250,7 @@ class TestValidation(unittest.TestCase):
 
     def test_missing_section(self):
         p = self.tmp / "bad.md"
-        p.write_text("# Agent Memory\n\n## Experiences\n\n## Facts\n")
+        p.write_text("# Agentic Memory\n\n## Experiences\n\n## Facts\n")
         result = manage.validate(p)
         self.assertFalse(result["valid"])
         self.assertTrue(any("World Knowledge" in e for e in result["errors"]))
@@ -258,7 +258,7 @@ class TestValidation(unittest.TestCase):
     def test_missing_reflections_section_is_invalid(self):
         p = self.tmp / "missing-reflections.md"
         p.write_text(
-            "# Agent Memory\n\n"
+            "# Agentic Memory\n\n"
             "## Experiences\n\n"
             "- **2026-03-27** [testing] {entities: x} Something happened during testing.\n\n"
             "## World Knowledge\n\n"
@@ -276,7 +276,7 @@ class TestValidation(unittest.TestCase):
         """Do not skip heading checks when an entry mentions per-section storage."""
         p = self.tmp / "legacy-phrase-in-body.md"
         p.write_text(
-            "# Agent Memory\n\n"
+            "# Agentic Memory\n\n"
             "## Experiences\n\n"
             "- **2026-03-27** [docs] {entities: memory-layout} "
             "We documented per-section files for the memory layout.\n\n"
@@ -296,7 +296,7 @@ class TestValidation(unittest.TestCase):
     def test_warnings_for_missing_metadata(self):
         p = self.tmp / "warn.md"
         p.write_text(
-            "# Daneel Agent Memory\n\n"
+            "# Daneel Agentic Memory\n\n"
             "## Experiences\n\n"
             "- short\n\n"
             "## World Knowledge\n\n"
@@ -556,14 +556,14 @@ class TestAtomicWriteGuard(unittest.TestCase):
     def test_write_text_if_unchanged_rejects_stale_hash(self):
         tmp = Path(tempfile.mkdtemp())
         path = tmp / "MEMORY.md"
-        path.write_text("# Agent Memory\n", encoding="utf-8")
+        path.write_text("# Agentic Memory\n", encoding="utf-8")
         expected_hash = manage.content_hash(path.read_text(encoding="utf-8"))
 
-        path.write_text("# Agent Memory\n\nchanged\n", encoding="utf-8")
+        path.write_text("# Agentic Memory\n\nchanged\n", encoding="utf-8")
 
         result = manage.write_text_if_unchanged(
             path,
-            "# Agent Memory\n\nreplacement\n",
+            "# Agentic Memory\n\nreplacement\n",
             expected_hash,
         )
 
@@ -683,7 +683,7 @@ class TestMaintenanceReport(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         p = tmp / "MEMORY.md"
         p.write_text(
-            "# Agent Memory\n\n## Experiences\n\n"
+            "# Agentic Memory\n\n## Experiences\n\n"
             "- **2020-01-01** [debug] {entities: legacy} Ancient lesson.\n\n"
             "## World Knowledge\n\n"
             "- {entities: x} Solo-sourced fact. (confidence: 0.80, sources: 1)\n\n"
@@ -708,7 +708,7 @@ class TestMaintenanceReport(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         p = tmp / "MEMORY.md"
         p.write_text(
-            "# Agent Memory\n\n## Experiences\n\n<!-- c -->\n\n"
+            "# Agentic Memory\n\n## Experiences\n\n<!-- c -->\n\n"
             "## World Knowledge\n\n<!-- c -->\n\n"
             "## Beliefs\n\n<!-- c -->\n\n"
             "## Reflections\n\n<!-- c -->\n\n"
@@ -725,7 +725,7 @@ class TestMaintenanceReport(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         p = tmp / "MEMORY.md"
         p.write_text(
-            "# Agent Memory\n\n## Experiences\n\n<!-- c -->\n\n"
+            "# Agentic Memory\n\n## Experiences\n\n<!-- c -->\n\n"
             "## World Knowledge\n\n"
             "- {entities: z} Well supported. (confidence: 0.90, sources: 3)\n\n"
             "## Beliefs\n\n<!-- c -->\n\n"
@@ -1087,7 +1087,7 @@ class TestDigest(unittest.TestCase):
 
     def test_digest_orders_failures_before_successes(self):
         mem = """\
-# Agent Memory
+# Agentic Memory
 
 ## Experiences
 
@@ -1116,7 +1116,7 @@ class TestDigest(unittest.TestCase):
 
 
 CONFLICT_MEMORY = """\
-# Agent Memory
+# Agentic Memory
 
 ## Experiences
 
@@ -1210,7 +1210,7 @@ class TestCheckConflicts(unittest.TestCase):
     def test_no_conflicts_when_empty(self):
         p = self.tmp / "empty.md"
         p.write_text(
-            "# Agent Memory\n\n## Experiences\n\n<!-- c -->\n\n"
+            "# Agentic Memory\n\n## Experiences\n\n<!-- c -->\n\n"
             "## World Knowledge\n\n<!-- c -->\n\n"
             "## Beliefs\n\n<!-- c -->\n\n"
             "## Reflections\n\n<!-- c -->\n\n"
@@ -1229,7 +1229,7 @@ class TestEmptyMemory(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         p = tmp / "MEMORY.md"
         p.write_text(
-            "# Agent Memory\n\n"
+            "# Agentic Memory\n\n"
             "## Experiences\n\n"
             "<!-- comment -->\n\n"
             "## World Knowledge\n\n"
@@ -1253,7 +1253,7 @@ class TestEmptyMemory(unittest.TestCase):
 
 
 CAUSAL_MEMORY = """\
-# Agent Memory
+# Agentic Memory
 
 ## Experiences
 

@@ -51,7 +51,7 @@ Requirements: **Python 3** available to the host that runs the skill’s stdlib 
 
      `ln -s ../../skills/memory .cursor/skills/memory`
 
-   - **Direct copy:** clone into `.cursor/skills/memory/` (contents at that folder's root, not nested `agent-memory/SKILL.md`).
+   - **Direct copy:** clone into `.cursor/skills/memory/` (contents at that folder's root, not nested `agentic-memory/SKILL.md`).
 
 2. Ensure **Agent Skills** loads project skills from `.cursor/skills/`.
 
@@ -64,7 +64,7 @@ Requirements: **Python 3** available to the host that runs the skill’s stdlib 
 1. Clone this repository so the skill root (where `SKILL.md` lives) is at **`$CODEX_HOME/skills/memory`**:
 
    ```bash
-   git clone git@github.com:fcarucci/agent-memory.git "$CODEX_HOME/skills/memory"
+   git clone git@github.com:fcarucci/agentic-memory.git "$CODEX_HOME/skills/memory"
    ```
 
 2. With **`CODEX_HOME`** set, Codex loads skills from **`$CODEX_HOME/skills`** by default.
@@ -272,5 +272,5 @@ Duplicate detection threshold, context tags, entity heuristics, and sensitive-va
 
 ---
 
-**Repository:** [github.com/fcarucci/agent-memory](https://github.com/fcarucci/agent-memory)
+**Repository:** [github.com/fcarucci/agentic-memory](https://github.com/fcarucci/agentic-memory)
 **License:** See `LICENSE` in this repository.

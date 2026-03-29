@@ -68,7 +68,7 @@ SECTION_TEMPLATES: dict[str, str] = {
 }
 
 CURATED_MASTER_TEMPLATE = """\
-# Agent Memory
+# Agentic Memory
 
 <!-- Curated subset suitable for inclusion in AGENTS.md.
      One-line previews + links to per-section files for full text.
@@ -116,7 +116,7 @@ DEFAULT_USER_SKILL_CONFIG: dict = {
 
 # Legacy single-file template (used for backward-compat validation only).
 LEGACY_SINGLE_FILE_TEMPLATE = """\
-# Agent Memory
+# Agentic Memory
 
 ## Experiences
 

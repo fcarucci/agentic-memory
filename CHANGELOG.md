@@ -1,0 +1,18 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.0] — 2026-03-29
+
+### Added
+
+- Initial public release of the Agentic Memory skill: Markdown-on-disk memory (retain / recall / reflect), five memory networks, curated `MEMORY.md` with section files, task-done sweep, and subagent rules (`SKILL.md`, `ref/`).
+- Python 3 stdlib helpers under `scripts/` (manage, recall, tests); optional `memory-skill.config.json` with per-host presets (`ref/config.md`).
+- CI runs the unittest suite on Python 3.11–3.13.
+
+### Notes
+
+- Canonical GitHub repo: **`fcarucci/agentic-memory`**. New project masters use **`# Agentic Memory`**; **`# Agent Memory`** remains accepted for existing files.

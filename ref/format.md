@@ -52,7 +52,7 @@ Prefer the canonical layout for new writes.
 Legacy monolithic template (backward compatibility only):
 
 ```markdown
-# Agent Memory
+# Agentic Memory
 
 ## Experiences
 
